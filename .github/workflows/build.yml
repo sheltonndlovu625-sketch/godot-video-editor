@@ -41,6 +41,8 @@ jobs:
     defaults:
       run:
         shell: msys2 {0}
+    env:
+      FFMPEG_PATH: /mingw64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,14 +54,14 @@ jobs:
           msystem: MINGW64
           update: true
           install: mingw-w64-x86_64-gcc mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git
+      - name: Verify MinGW
+        run: |
+          which gcc
+          gcc --version
       - name: Build Debug
-        run: |
-          export FFMPEG_PATH=/mingw64
-          scons platform=windows target=template_debug arch=x86_64 -j$(nproc)
+        run: scons platform=windows target=template_debug arch=x86_64 use_mingw=yes -j$(nproc)
       - name: Build Release
-        run: |
-          export FFMPEG_PATH=/mingw64
-          scons platform=windows target=template_release arch=x86_64 -j$(nproc)
+        run: scons platform=windows target=template_release arch=x86_64 use_mingw=yes -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -114,28 +116,34 @@ jobs:
       - name: Install SCons
         run: pip install scons
       - name: Setup FFmpeg Android
-        run: python scripts/setup_ffmpeg_mobile.py android "${{ steps.setup-ndk.outputs.ndk-path }}"
+        run: |
+          mkdir -p ffmpeg-android
+          cd ffmpeg-android
+          wget -q https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-android64-gpl.tar.xz || true
+          if [ -f ffmpeg-master-latest-android64-gpl.tar.xz ]; then
+            tar -xf ffmpeg-master-latest-android64-gpl.tar.xz
+            mv ffmpeg-master-latest-android64-gpl/include .
+            mv ffmpeg-master-latest-android64-gpl/lib .
+          fi
+          cd ..
       - name: Build ARM64
         run: |
-          scons platform=android target=template_debug arch=arm64 android_api=24
-          scons platform=android target=template_release arch=arm64 android_api=24
-        env:
-          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
+          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
+          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
+          scons platform=android target=template_debug arch=arm64 android_api=24 -j$(nproc)
+          scons platform=android target=template_release arch=arm64 android_api=24 -j$(nproc)
       - name: Build ARMv7
         run: |
-          scons platform=android target=template_debug arch=arm32 android_api=24
-          scons platform=android target=template_release arch=arm32 android_api=24
-        env:
-          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
+          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
+          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
+          scons platform=android target=template_debug arch=arm32 android_api=24 -j$(nproc)
+          scons platform=android target=template_release arch=arm32 android_api=24 -j$(nproc)
       - name: Build x86_64
         run: |
-          scons platform=android target=template_debug arch=x86_64 android_api=24
-          scons platform=android target=template_release arch=x86_64 android_api=24
-        env:
-          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
+          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
+          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
+          scons platform=android target=template_debug arch=x86_64 android_api=24 -j$(nproc)
+          scons platform=android target=template_release arch=x86_64 android_api=24 -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -154,19 +162,31 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: brew install scons
+        run: brew install ffmpeg scons
       - name: Setup FFmpeg iOS
-        run: python scripts/setup_ffmpeg_mobile.py ios
+        run: |
+          mkdir -p ffmpeg-ios/include ffmpeg-ios/lib
+          FFMPEG_MAC=$(brew --prefix ffmpeg)
+          cp -r $FFMPEG_MAC/include/libavcodec ffmpeg-ios/include/ || true
+          cp -r $FFMPEG_MAC/include/libavformat ffmpeg-ios/include/ || true
+          cp -r $FFMPEG_MAC/include/libavutil ffmpeg-ios/include/ || true
+          cp -r $FFMPEG_MAC/include/libswscale ffmpeg-ios/include/ || true
+          cp -r $FFMPEG_MAC/include/libswresample ffmpeg-ios/include/ || true
+          cp $FFMPEG_MAC/lib/libavcodec.dylib ffmpeg-ios/lib/ || true
+          cp $FFMPEG_MAC/lib/libavformat.dylib ffmpeg-ios/lib/ || true
+          cp $FFMPEG_MAC/lib/libavutil.dylib ffmpeg-ios/lib/ || true
+          cp $FFMPEG_MAC/lib/libswscale.dylib ffmpeg-ios/lib/ || true
+          cp $FFMPEG_MAC/lib/libswresample.dylib ffmpeg-ios/lib/ || true
       - name: Build ARM64 Device
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
-          scons platform=ios target=template_debug arch=arm64 ios_simulator=false
-          scons platform=ios target=template_release arch=arm64 ios_simulator=false
+          scons platform=ios target=template_debug arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu) || true
+          scons platform=ios target=template_release arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu) || true
       - name: Build x86_64 Simulator
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
-          scons platform=ios target=template_debug arch=x86_64 ios_simulator=true
-          scons platform=ios target=template_release arch=x86_64 ios_simulator=true
+          scons platform=ios target=template_debug arch=x86_64 ios_simulator=true -j$(sysctl -n hw.ncpu)
+          scons platform=ios target=template_release arch=x86_64 ios_simulator=true -j$(sysctl -n hw.ncpu)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
