@@ -53,9 +53,13 @@ jobs:
           update: true
           install: mingw-w64-x86_64-gcc mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git
       - name: Build Debug
-        run: scons platform=windows target=template_debug arch=x86_64 -j$(nproc)
+        run: |
+          export FFMPEG_PATH=/mingw64
+          scons platform=windows target=template_debug arch=x86_64 -j$(nproc)
       - name: Build Release
-        run: scons platform=windows target=template_release arch=x86_64 -j$(nproc)
+        run: |
+          export FFMPEG_PATH=/mingw64
+          scons platform=windows target=template_release arch=x86_64 -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -77,10 +81,12 @@ jobs:
         run: brew install ffmpeg scons
       - name: Build x86_64
         run: |
+          export FFMPEG_PATH=$(brew --prefix ffmpeg)
           scons platform=macos target=template_debug arch=x86_64 -j$(sysctl -n hw.ncpu)
           scons platform=macos target=template_release arch=x86_64 -j$(sysctl -n hw.ncpu)
       - name: Build arm64
         run: |
+          export FFMPEG_PATH=$(brew --prefix ffmpeg)
           scons platform=macos target=template_debug arch=arm64 -j$(sysctl -n hw.ncpu)
           scons platform=macos target=template_release arch=arm64 -j$(sysctl -n hw.ncpu)
       - name: Upload Artifacts
@@ -153,16 +159,14 @@ jobs:
         run: python scripts/setup_ffmpeg_mobile.py ios
       - name: Build ARM64 Device
         run: |
+          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
           scons platform=ios target=template_debug arch=arm64 ios_simulator=false
           scons platform=ios target=template_release arch=arm64 ios_simulator=false
-        env:
-          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-ios
       - name: Build x86_64 Simulator
         run: |
+          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
           scons platform=ios target=template_debug arch=x86_64 ios_simulator=true
           scons platform=ios target=template_release arch=x86_64 ios_simulator=true
-        env:
-          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-ios
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
