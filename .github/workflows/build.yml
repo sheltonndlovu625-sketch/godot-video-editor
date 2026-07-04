@@ -11,46 +11,31 @@ env:
   GODOT_CPP_BRANCH: 4.4.1-stable
 
 jobs:
-  # ----------------------------------------
-  # Linux (x86_64)
-  # ----------------------------------------
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          submodules: recursive
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install system dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y             scons             pkg-config             libavcodec-dev             libavformat-dev             libavutil-dev             libswscale-dev             libswresample-dev
-
-      - name: Clone godot-cpp
-        run: |
-          git clone --branch ${{ env.GODOT_CPP_BRANCH }} --depth 1             https://github.com/godotengine/godot-cpp.git
-
+          sudo apt-get install -y scons pkg-config libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
       - name: Build Debug
-        run: |
-          scons platform=linux target=template_debug arch=x86_64 -j$(nproc)
-
+        run: scons platform=linux target=template_debug arch=x86_64 -j$(nproc)
       - name: Build Release
-        run: |
-          scons platform=linux target=template_release arch=x86_64 -j$(nproc)
-
-      - name: Upload Linux Artifacts
+        run: scons platform=linux target=template_release arch=x86_64 -j$(nproc)
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-libraries
           path: godot_project/addons/video_encoder/bin/linux/
 
-  # ----------------------------------------
-  # Windows (x86_64) via MSYS2/MinGW
-  # ----------------------------------------
   build-windows:
     runs-on: windows-latest
     defaults:
@@ -59,174 +44,126 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          submodules: recursive
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-ffmpeg
-            mingw-w64-x86_64-scons
-            mingw-w64-x86_64-pkgconf
-            git
-
-      - name: Clone godot-cpp
-        run: |
-          git clone --branch ${{ env.GODOT_CPP_BRANCH }} --depth 1             https://github.com/godotengine/godot-cpp.git
-
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git
       - name: Build Debug
-        run: |
-          scons platform=windows target=template_debug arch=x86_64 -j$(nproc)
-
+        run: scons platform=windows target=template_debug arch=x86_64 -j$(nproc)
       - name: Build Release
-        run: |
-          scons platform=windows target=template_release arch=x86_64 -j$(nproc)
-
-      - name: Upload Windows Artifacts
+        run: scons platform=windows target=template_release arch=x86_64 -j$(nproc)
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-libraries
           path: godot_project/addons/video_encoder/bin/windows/
 
-  # ----------------------------------------
-  # macOS (x86_64 + Apple Silicon)
-  # ----------------------------------------
   build-macos:
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          submodules: recursive
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
-        run: |
-          brew install ffmpeg scons
-
-      - name: Clone godot-cpp
-        run: |
-          git clone --branch ${{ env.GODOT_CPP_BRANCH }} --depth 1             https://github.com/godotengine/godot-cpp.git
-
-      - name: Build Intel (x86_64)
+        run: brew install ffmpeg scons
+      - name: Build x86_64
         run: |
           scons platform=macos target=template_debug arch=x86_64 -j$(sysctl -n hw.ncpu)
           scons platform=macos target=template_release arch=x86_64 -j$(sysctl -n hw.ncpu)
-
-      - name: Build Apple Silicon (arm64)
+      - name: Build arm64
         run: |
           scons platform=macos target=template_debug arch=arm64 -j$(sysctl -n hw.ncpu)
           scons platform=macos target=template_release arch=arm64 -j$(sysctl -n hw.ncpu)
-
-      - name: Upload macOS Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-libraries
           path: godot_project/addons/video_encoder/bin/macos/
 
-  # ----------------------------------------
-  # Android (ARM64, ARMv7, x86_64)
-  # ----------------------------------------
   build-android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          submodules: recursive
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
+        id: setup-ndk
         with:
           ndk-version: r26b
-          link-to-system-ndk: true
-
       - name: Install SCons
         run: pip install scons
-
-      - name: Clone godot-cpp
-        run: |
-          git clone --branch ${{ env.GODOT_CPP_BRANCH }} --depth 1             https://github.com/godotengine/godot-cpp.git
-
       - name: Setup FFmpeg Android
-        run: |
-          python scripts/setup_ffmpeg_mobile.py android "$ANDROID_NDK_ROOT"
-
+        run: python scripts/setup_ffmpeg_mobile.py android "${{ steps.setup-ndk.outputs.ndk-path }}"
       - name: Build ARM64
         run: |
           scons platform=android target=template_debug arch=arm64 android_api=24
           scons platform=android target=template_release arch=arm64 android_api=24
         env:
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
-
       - name: Build ARMv7
         run: |
           scons platform=android target=template_debug arch=arm32 android_api=24
           scons platform=android target=template_release arch=arm32 android_api=24
         env:
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
-
       - name: Build x86_64
         run: |
           scons platform=android target=template_debug arch=x86_64 android_api=24
           scons platform=android target=template_release arch=x86_64 android_api=24
         env:
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
-
-      - name: Upload Android Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-libraries
           path: godot_project/addons/video_encoder/bin/android/
 
-  # ----------------------------------------
-  # iOS (ARM64 Device + x86_64 Simulator)
-  # ----------------------------------------
   build-ios:
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          submodules: recursive
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
-        run: |
-          brew install scons
-
-      - name: Clone godot-cpp
-        run: |
-          git clone --branch ${{ env.GODOT_CPP_BRANCH }} --depth 1             https://github.com/godotengine/godot-cpp.git
-
+        run: brew install scons
       - name: Setup FFmpeg iOS
-        run: |
-          python scripts/setup_ffmpeg_mobile.py ios
-
-      - name: Build ARM64 (Device)
+        run: python scripts/setup_ffmpeg_mobile.py ios
+      - name: Build ARM64 Device
         run: |
           scons platform=ios target=template_debug arch=arm64 ios_simulator=false
           scons platform=ios target=template_release arch=arm64 ios_simulator=false
         env:
           FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-ios
-
-      - name: Build x86_64 (Simulator)
+      - name: Build x86_64 Simulator
         run: |
           scons platform=ios target=template_debug arch=x86_64 ios_simulator=true
           scons platform=ios target=template_release arch=x86_64 ios_simulator=true
         env:
           FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-ios
-
-      - name: Upload iOS Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ios-libraries
