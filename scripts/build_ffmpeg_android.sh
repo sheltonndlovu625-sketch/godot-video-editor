@@ -11,92 +11,64 @@ if [ -z "$ANDROID_NDK" ]; then
     exit 1
 fi
 
-echo "Using NDK: $ANDROID_NDK"
+echo "=== NDK PATH ==="
+echo "$ANDROID_NDK"
+ls -la "$ANDROID_NDK" 2>/dev/null | head -10 || true
 
 HOST_TAG="linux-x86_64"
 TOOLCHAIN="$ANDROID_NDK/toolchains/llvm/prebuilt/$HOST_TAG"
 
-if [ ! -d "$TOOLCHAIN" ]; then
-    echo "ERROR: Toolchain not found at $TOOLCHAIN"
-    ls -la "$ANDROID_NDK/toolchains/llvm/prebuilt/" || true
-    exit 1
-fi
+echo "=== TOOLCHAIN ==="
+ls -la "$TOOLCHAIN/bin/" 2>/dev/null | grep clang | head -5 || true
 
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-if [ ! -f "ffmpeg-${FFMPEG_VERSION}.tar.xz" ]; then
-    echo "Downloading FFmpeg source..."
-    wget -q "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
-fi
+echo "=== DOWNLOAD ==="
+wget -q --show-progress "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
 tar -xf "ffmpeg-${FFMPEG_VERSION}.tar.xz"
 cd "ffmpeg-${FFMPEG_VERSION}"
 
-build_ffmpeg() {
-    local ARCH=$1
-    local TRIPLE=$2
-    local CPU=$3
-    local PREFIX=$4
-    
-    echo "Building FFmpeg for ${ARCH}..."
-    
-    local CC="$TOOLCHAIN/bin/${TRIPLE}${ANDROID_API}-clang"
-    local CXX="$TOOLCHAIN/bin/${TRIPLE}${ANDROID_API}-clang++"
-    local AR="$TOOLCHAIN/bin/llvm-ar"
-    local STRIP="$TOOLCHAIN/bin/llvm-strip"
-    local NM="$TOOLCHAIN/bin/llvm-nm"
-    local RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
-    
-    ./configure \
-        --prefix="$PREFIX" \
-        --target-os=android \
-        --arch="$ARCH" \
-        --cpu="$CPU" \
-        --enable-cross-compile \
-        --cc="$CC" \
-        --cxx="$CXX" \
-        --ar="$AR" \
-        --strip="$STRIP" \
-        --nm="$NM" \
-        --ranlib="$RANLIB" \
-        --sysroot="$TOOLCHAIN/sysroot" \
-        --extra-cflags="-O3 -fPIC" \
-        --extra-ldflags="-Wl,--no-undefined -Wl,-z,noexecstack" \
-        --disable-programs \
-        --disable-doc \
-        --disable-network \
-        --disable-everything \
-        --enable-avcodec \
-        --enable-avformat \
-        --enable-avutil \
-        --enable-swscale \
-        --enable-swresample \
-        --enable-encoder=aac \
-        --enable-muxer=mp4 \
-        --enable-protocol=file \
-        --enable-filter=scale \
-        --enable-static \
-        --disable-shared \
-        --enable-pic \
-        --disable-asm \
-        --disable-stripping \
-        --disable-debug
-    
-    make -j$(nproc)
-    make install
-    make distclean || true
-}
+echo "=== CONFIGURE ARM64 ==="
+./configure \
+    --prefix="$BUILD_DIR/build-arm64" \
+    --target-os=android \
+    --arch=aarch64 \
+    --cpu=armv8-a \
+    --enable-cross-compile \
+    --cc="$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang" \
+    --cxx="$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang++" \
+    --ar="$TOOLCHAIN/bin/llvm-ar" \
+    --sysroot="$TOOLCHAIN/sysroot" \
+    --extra-cflags="-O3 -fPIC" \
+    --disable-programs \
+    --disable-doc \
+    --disable-network \
+    --disable-everything \
+    --enable-avcodec \
+    --enable-avformat \
+    --enable-avutil \
+    --enable-swscale \
+    --enable-swresample \
+    --enable-encoder=aac \
+    --enable-muxer=mp4 \
+    --enable-protocol=file \
+    --enable-static \
+    --disable-shared \
+    --enable-pic \
+    --disable-asm \
+    --disable-debug 2>&1 | tail -30
 
-build_ffmpeg "aarch64" "aarch64-linux-android" "armv8-a" "$BUILD_DIR/build-arm64"
-build_ffmpeg "arm" "armv7a-linux-androideabi" "armv7-a" "$BUILD_DIR/build-armv7"
-build_ffmpeg "x86_64" "x86_64-linux-android" "x86-64" "$BUILD_DIR/build-x86_64"
+echo "=== MAKE ==="
+make -j$(nproc) 2>&1 | tail -10
+make install
+
+echo "=== RESULTS ==="
+ls -la "$BUILD_DIR/build-arm64/include/" 2>/dev/null || true
+ls -la "$BUILD_DIR/build-arm64/lib/" 2>/dev/null || true
 
 mkdir -p "$BUILD_DIR/include" "$BUILD_DIR/lib"
 cp -r "$BUILD_DIR/build-arm64/include/"* "$BUILD_DIR/include/" 2>/dev/null || true
 cp "$BUILD_DIR/build-arm64/lib/"*.a "$BUILD_DIR/lib/" 2>/dev/null || true
-cp "$BUILD_DIR/build-armv7/lib/"*.a "$BUILD_DIR/lib/" 2>/dev/null || true
-cp "$BUILD_DIR/build-x86_64/lib/"*.a "$BUILD_DIR/lib/" 2>/dev/null || true
-
-echo "Android FFmpeg build complete!"
-ls -la "$BUILD_DIR/include/"
-ls -la "$BUILD_DIR/lib/"
+ls -la "$BUILD_DIR/include/" || true
+ls -la "$BUILD_DIR/lib/" || true
