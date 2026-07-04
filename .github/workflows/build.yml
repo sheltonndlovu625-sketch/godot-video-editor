@@ -36,7 +36,8 @@ jobs:
           name: linux-libraries
           path: godot_project/addons/video_encoder/bin/linux/
 
-  build-windows:
+  # build-windows:  # DISABLED - MinGW toolchain issues, mobile priority
+  #   if: false
     runs-on: windows-latest
     defaults:
       run:
