@@ -13,7 +13,6 @@ export_presets.cfg
 *.a
 *.lib
 
-# godot-cpp (fetched by script)
 
 # Mobile FFmpeg (fetched by script)
 ffmpeg-android/
