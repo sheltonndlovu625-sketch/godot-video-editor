@@ -122,19 +122,22 @@ jobs:
           GITHUB_WORKSPACE: ${{ github.workspace }}
       - name: Build ARM64
         run: |
+          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=arm64 android_api=24 -j$(nproc)
-          scons platform=android target=template_release arch=arm64 android_api=24 -j$(nproc)
+          scons platform=android target=template_debug arch=arm64 -j$(nproc)
+          scons platform=android target=template_release arch=arm64 -j$(nproc)
       - name: Build ARMv7
         run: |
+          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=arm32 android_api=24 -j$(nproc)
-          scons platform=android target=template_release arch=arm32 android_api=24 -j$(nproc)
+          scons platform=android target=template_debug arch=arm32 -j$(nproc)
+          scons platform=android target=template_release arch=arm32 -j$(nproc)
       - name: Build x86_64
         run: |
+          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=x86_64 android_api=24 -j$(nproc)
-          scons platform=android target=template_release arch=x86_64 android_api=24 -j$(nproc)
+          scons platform=android target=template_debug arch=x86_64 -j$(nproc)
+          scons platform=android target=template_release arch=x86_64 -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
