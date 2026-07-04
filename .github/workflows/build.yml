@@ -113,6 +113,11 @@ jobs:
         id: setup-ndk
         with:
           ndk-version: r26b
+      - name: Create NDK Symlink
+        run: |
+          sudo mkdir -p /usr/local/lib/android/sdk/ndk
+          sudo ln -s ${{ steps.setup-ndk.outputs.ndk-path }} /usr/local/lib/android/sdk/ndk/23.2.8568313
+          ls -la /usr/local/lib/android/sdk/ndk/
       - name: Install SCons
         run: pip install scons
       - name: Setup FFmpeg Android
@@ -128,25 +133,22 @@ jobs:
           cd ..
       - name: Build ARM64
         run: |
-          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
-          scons platform=android target=template_debug arch=arm64 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
-          scons platform=android target=template_release arch=arm64 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
-        env:
-          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
+          export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/23.2.8568313
+          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
+          scons platform=android target=template_debug arch=arm64 android_api=24 -j$(nproc)
+          scons platform=android target=template_release arch=arm64 android_api=24 -j$(nproc)
       - name: Build ARMv7
         run: |
-          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
-          scons platform=android target=template_debug arch=arm32 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
-          scons platform=android target=template_release arch=arm32 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
-        env:
-          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
+          export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/23.2.8568313
+          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
+          scons platform=android target=template_debug arch=arm32 android_api=24 -j$(nproc)
+          scons platform=android target=template_release arch=arm32 android_api=24 -j$(nproc)
       - name: Build x86_64
         run: |
-          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
-          scons platform=android target=template_debug arch=x86_64 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
-          scons platform=android target=template_release arch=x86_64 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
-        env:
-          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
+          export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/23.2.8568313
+          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
+          scons platform=android target=template_debug arch=x86_64 android_api=24 -j$(nproc)
+          scons platform=android target=template_release arch=x86_64 android_api=24 -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
