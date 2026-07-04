@@ -1,0 +1,30 @@
+# Godot
+.import/
+export.cfg
+export_presets.cfg
+*.tmp
+
+# Build artifacts
+*.o
+*.os
+*.so
+*.dll
+*.dylib
+*.a
+*.lib
+
+# godot-cpp (fetched by script)
+godot-cpp/
+
+# Mobile FFmpeg (fetched by script)
+ffmpeg-android/
+ffmpeg-ios/
+
+# IDE
+.vscode/
+.idea/
+*.user
+
+# OS
+.DS_Store
+Thumbs.db

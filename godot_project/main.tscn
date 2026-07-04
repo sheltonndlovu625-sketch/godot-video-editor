@@ -1,0 +1,152 @@
+[gd_scene load_steps=6 format=3 uid="uid://c8yvxg3ulq3a"]
+
+[ext_resource type="Script" path="res://main.gd" id="1_abc12"]
+[ext_resource type="Shader" path="res://shaders/aspect_fit.gdshader" id="2_def34"]
+[ext_resource type="Shader" path="res://shaders/effects/color_adjust.gdshader" id="3_ghi56"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_1"]
+shader = ExtResource("2_def34")
+shader_parameter/video_size = Vector2(1080, 1920)
+shader_parameter/cover_mode = true
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_2"]
+shader = ExtResource("3_ghi56")
+shader_parameter/brightness = 1.0
+shader_parameter/contrast = 1.0
+shader_parameter/saturation = 1.0
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_abc12")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.05, 0.05, 0.05, 1)
+
+[node name="VideoContainer" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_bottom = -200.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SubViewportContainer" type="SubViewportContainer" parent="VideoContainer"]
+material = SubResource("ShaderMaterial_1")
+layout_mode = 2
+stretch = true
+
+[node name="SubViewport" type="SubViewport" parent="VideoContainer/SubViewportContainer"]
+handle_input_locally = false
+size = Vector2i(1080, 1920)
+render_target_update_mode = 4
+
+[node name="VideoStreamPlayer" type="VideoStreamPlayer" parent="VideoContainer/SubViewportContainer/SubViewport"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+expand = true
+
+[node name="EffectsOverlay" type="ColorRect" parent="VideoContainer"]
+visible = false
+material = SubResource("ShaderMaterial_2")
+layout_mode = 2
+size = Vector2i(1080, 1920)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="TopBar" type="Panel" parent="UI"]
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 120.0
+
+[node name="Title" type="Label" parent="UI/TopBar"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -30.0
+offset_right = 200.0
+offset_bottom = 30.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 40
+text = "Video Editor"
+horizontal_alignment = 1
+
+[node name="BottomBar" type="Panel" parent="UI"]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -200.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Controls" type="HBoxContainer" parent="UI/BottomBar"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = 40.0
+offset_right = -40.0
+offset_bottom = -40.0
+grow_horizontal = 2
+grow_vertical = 2
+alignment = 1
+
+[node name="ImportBtn" type="Button" parent="UI/BottomBar/Controls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 32
+text = "Import"
+
+[node name="PlayBtn" type="Button" parent="UI/BottomBar/Controls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 32
+text = "Play"
+
+[node name="TrimBtn" type="Button" parent="UI/BottomBar/Controls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 32
+text = "Trim"
+
+[node name="CameraBtn" type="Button" parent="UI/BottomBar/Controls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 32
+text = "Camera"
+
+[node name="ExportBtn" type="Button" parent="UI/BottomBar/Controls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 32
+text = "Export MP4"
+
+[node name="FileDialog" type="FileDialog" parent="."]
+title = "Open Video"
+ok_button_text = "Open"
+file_mode = 0
+access = 2
+filters = PackedStringArray("*.mp4; MP4 Video", "*.mov; MOV Video", "*.webm; WebM Video", "*.ogv; Ogg Video")
+
+[node name="ExportDialog" type="FileDialog" parent="."]
+title = "Export Video"
+ok_button_text = "Save"
+file_mode = 2
+access = 2
+filters = PackedStringArray("*.mp4; MP4 Video")

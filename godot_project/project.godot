@@ -1,0 +1,21 @@
+; Engine Configuration File
+; Godot version: 4.4.1.stable
+
+[application]
+config/name="Godot Video Editor"
+config/features=PackedStringArray("4.4", "Mobile")
+run/main_scene="res://main.tscn"
+config/icon="res://icon.svg"
+
+[display]
+window/size/viewport_width=1080
+window/size/viewport_height=1920
+window/stretch/mode="canvas_items"
+window/handheld/orientation=1
+
+[rendering]
+renderer/rendering_method="mobile"
+textures/vram_compression/import_etc2_astc=true
+
+[editor]
+export/convert_text_resources_to_binary=true
