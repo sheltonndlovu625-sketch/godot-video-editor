@@ -27,7 +27,6 @@ fi
 SRC_DIR="$WORKSPACE/ffmpeg-$FFMPEG_VERSION"
 
 COMMON_FLAGS=(
-    --prefix=OUT_DIR
     --target-os=android
     --enable-cross-compile
     --disable-programs
@@ -36,22 +35,23 @@ COMMON_FLAGS=(
     --enable-static
     --enable-gpl
     --enable-version3
-    --disable-encoders
-    --disable-muxers
-    --disable-filters
-    --disable-devices
-    --disable-postproc
-    --disable-avdevice
-    --disable-network
+    --disable-asm
+    --disable-x86asm
+    --disable-inline-asm
     --disable-stripping
-    --enable-encoder=mjpeg
-    --enable-encoder=png
+    --disable-bzlib
+    --disable-libopenjpeg
+    --disable-iconv
+    --disable-zlib
+    --disable-everything
     --enable-decoder=h264
     --enable-decoder=hevc
     --enable-decoder=mpeg4
     --enable-decoder=vp8
     --enable-decoder=vp9
     --enable-decoder=av1
+    --enable-encoder=mjpeg
+    --enable-encoder=png
 )
 
 build_arch() {
@@ -82,7 +82,12 @@ build_arch() {
         --sysroot="$TOOLCHAIN/sysroot" \
         --extra-cflags="-O3 -fPIC" \
         --extra-ldflags="-O3" \
-        "${COMMON_FLAGS[@]}"
+        "${COMMON_FLAGS[@]}" || {
+            echo "=== CONFIGURE FAILED for $ARCH ==="
+            echo "=== config.log tail (last 100 lines) ==="
+            tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
+            exit 1
+        }
 
     make -j$(nproc)
     make install
