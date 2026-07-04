@@ -124,34 +124,18 @@ jobs:
         run: |
           mkdir -p ffmpeg-android
           cd ffmpeg-android
-          
-          # Try multiple sources for Android FFmpeg
-          echo "Downloading FFmpeg for Android..."
-          
-          # Source 1: BtbN builds
-          wget --timeout=30 -O ffmpeg-android.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-android64-gpl.tar.xz" 2>&1 || echo "BtbN download failed"
-          
+          wget --timeout=30 -O ffmpeg-android.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-android64-gpl.tar.xz" 2>&1 || echo "Download failed"
           if [ -f ffmpeg-android.tar.xz ] && [ -s ffmpeg-android.tar.xz ]; then
-            echo "BtbN download succeeded, extracting..."
             tar -xf ffmpeg-android.tar.xz
-            # BtbN structure: ffmpeg-master-latest-android64-gpl/{include,lib}
             if [ -d ffmpeg-master-latest-android64-gpl ]; then
               cp -r ffmpeg-master-latest-android64-gpl/include ../include
               cp -r ffmpeg-master-latest-android64-gpl/lib ../lib
             fi
-          else
-            echo "BtbN failed, trying alternative..."
-            # Source 2: Try to use a minimal placeholder that will compile but not link
-            # This lets us build the GDExtension; FFmpeg libs would need to be linked manually
-            mkdir -p ../include ../lib
           fi
-          
           cd ..
-          echo "FFmpeg Android structure:"
           ls -la ffmpeg-android/ || true
           ls -la ffmpeg-android/include/ 2>/dev/null || echo "No include dir"
           ls -la ffmpeg-android/lib/ 2>/dev/null || echo "No lib dir"
-          
       - name: Build ARM64
         run: |
           export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/23.2.8568313
@@ -188,28 +172,14 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: brew install ffmpeg scons
-      - name: Setup FFmpeg iOS
-        run: |
-          mkdir -p ffmpeg-ios/include ffmpeg-ios/lib
-          FFMPEG_MAC=$(brew --prefix ffmpeg)
-          cp -r $FFMPEG_MAC/include/libavcodec ffmpeg-ios/include/ 2>/dev/null || true
-          cp -r $FFMPEG_MAC/include/libavformat ffmpeg-ios/include/ 2>/dev/null || true
-          cp -r $FFMPEG_MAC/include/libavutil ffmpeg-ios/include/ 2>/dev/null || true
-          cp -r $FFMPEG_MAC/include/libswscale ffmpeg-ios/include/ 2>/dev/null || true
-          cp -r $FFMPEG_MAC/include/libswresample ffmpeg-ios/include/ 2>/dev/null || true
-          cp $FFMPEG_MAC/lib/libavcodec.a ffmpeg-ios/lib/ 2>/dev/null || cp $FFMPEG_MAC/lib/libavcodec.dylib ffmpeg-ios/lib/ 2>/dev/null || true
-          cp $FFMPEG_MAC/lib/libavformat.a ffmpeg-ios/lib/ 2>/dev/null || cp $FFMPEG_MAC/lib/libavformat.dylib ffmpeg-ios/lib/ 2>/dev/null || true
-          cp $FFMPEG_MAC/lib/libavutil.a ffmpeg-ios/lib/ 2>/dev/null || cp $FFMPEG_MAC/lib/libavutil.dylib ffmpeg-ios/lib/ 2>/dev/null || true
-          cp $FFMPEG_MAC/lib/libswscale.a ffmpeg-ios/lib/ 2>/dev/null || cp $FFMPEG_MAC/lib/libswscale.dylib ffmpeg-ios/lib/ 2>/dev/null || true
-          cp $FFMPEG_MAC/lib/libswresample.a ffmpeg-ios/lib/ 2>/dev/null || cp $FFMPEG_MAC/lib/libswresample.dylib ffmpeg-ios/lib/ 2>/dev/null || true
-          ls -la ffmpeg-ios/include/
-          ls -la ffmpeg-ios/lib/
+        run: brew install scons nasm
+      - name: Build FFmpeg for iOS
+        run: bash scripts/build_ffmpeg_ios.sh
       - name: Build ARM64 Device
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
-          scons platform=ios target=template_debug arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu) || true
-          scons platform=ios target=template_release arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu) || true
+          scons platform=ios target=template_debug arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu)
+          scons platform=ios target=template_release arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu)
       - name: Build x86_64 Simulator
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
