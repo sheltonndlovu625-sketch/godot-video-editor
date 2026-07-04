@@ -51,7 +51,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils mingw-w64-x86_64-binutils mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git make diffutils
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils mingw-w64-x86_64-binutils mingw-w64-x86_64-binutils mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git make diffutils
       - name: Verify MinGW
         run: |
           which gcc
