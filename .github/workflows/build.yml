@@ -113,32 +113,25 @@ jobs:
         id: setup-ndk
         with:
           ndk-version: r26b
-      - name: Create NDK Symlink
-        run: |
-          sudo mkdir -p /usr/local/lib/android/sdk/ndk
-          sudo ln -s ${{ steps.setup-ndk.outputs.ndk-path }} /usr/local/lib/android/sdk/ndk/23.2.8568313
-          ls -la /usr/local/lib/android/sdk/ndk/
       - name: Install SCons
         run: pip install scons
       - name: Build FFmpeg Android
-        run: |
-          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
-          bash scripts/build_ffmpeg_android.sh
+        run: bash scripts/build_ffmpeg_android.sh
+        env:
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
       - name: Build ARM64
         run: |
-          export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/23.2.8568313
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
           scons platform=android target=template_debug arch=arm64 android_api=24 -j$(nproc)
           scons platform=android target=template_release arch=arm64 android_api=24 -j$(nproc)
       - name: Build ARMv7
         run: |
-          export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/23.2.8568313
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
           scons platform=android target=template_debug arch=arm32 android_api=24 -j$(nproc)
           scons platform=android target=template_release arch=arm32 android_api=24 -j$(nproc)
       - name: Build x86_64
         run: |
-          export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/23.2.8568313
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
           scons platform=android target=template_debug arch=x86_64 android_api=24 -j$(nproc)
           scons platform=android target=template_release arch=x86_64 android_api=24 -j$(nproc)

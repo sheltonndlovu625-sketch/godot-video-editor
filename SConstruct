@@ -2,16 +2,13 @@
 import os
 import sys
 
-# Ensure godot-cpp is present
 if not os.path.exists("godot-cpp"):
     print("ERROR: godot-cpp not found.")
     print("Run: bash scripts/setup_godot_cpp.sh")
     sys.exit(1)
 
-# Load godot-cpp build environment
 env = SConscript("godot-cpp/SConstruct")
 
-# Add our source files
 env.Append(CPPPATH=["src/"])
 sources = Glob("src/*.cpp")
 
@@ -21,16 +18,32 @@ sources = Glob("src/*.cpp")
 ffmpeg_path = ARGUMENTS.get("ffmpeg_path", os.environ.get("FFMPEG_PATH", ""))
 
 if ffmpeg_path:
-    ffmpeg_include = os.path.join(ffmpeg_path, "include")
-    ffmpeg_lib = os.path.join(ffmpeg_path, "lib")
+    ffmpeg_arch = ""
+    if env["platform"] == "android":
+        arch_map = {"arm64": "aarch64", "arm32": "arm", "x86_64": "x86_64"}
+        ffmpeg_arch = arch_map.get(env["arch"], env["arch"])
+    elif env["platform"] == "ios":
+        ffmpeg_arch = env["arch"]
+
+    if ffmpeg_arch:
+        ffmpeg_include = os.path.join(ffmpeg_path, ffmpeg_arch, "include")
+        ffmpeg_lib = os.path.join(ffmpeg_path, ffmpeg_arch, "lib")
+    else:
+        ffmpeg_include = os.path.join(ffmpeg_path, "include")
+        ffmpeg_lib = os.path.join(ffmpeg_path, "lib")
 
     if os.path.exists(ffmpeg_include):
         env.Append(CPPPATH=[ffmpeg_include])
+        print("FFmpeg include: " + ffmpeg_include)
+    else:
+        print("WARNING: FFmpeg include not found: " + ffmpeg_include)
+
     if os.path.exists(ffmpeg_lib):
         env.Append(LIBPATH=[ffmpeg_lib])
+        print("FFmpeg lib: " + ffmpeg_lib)
+    else:
+        print("WARNING: FFmpeg lib not found: " + ffmpeg_lib)
 
-# FFmpeg libraries to link
-# Order matters for static linking: codec -> format -> util -> scale -> resample
 ffmpeg_libs = ["avcodec", "avformat", "avutil", "swscale", "swresample"]
 env.Append(LIBS=ffmpeg_libs)
 
@@ -38,8 +51,7 @@ env.Append(LIBS=ffmpeg_libs)
 # Platform-Specific Tweaks
 # ------------------------------------------------------------------
 if env["platform"] == "android":
-    # CRITICAL: Force soname without version suffix for Android .so files
-    env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.so"])
+    env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
     env.Append(LIBS=["android", "log"])
 
 elif env["platform"] == "ios":
@@ -52,7 +64,6 @@ elif env["platform"] == "ios":
     ])
 
 elif env["platform"] == "windows":
-    # Windows-specific system libs required by FFmpeg
     env.Append(LIBS=[
         "bcrypt", "strmiids", "uuid", "ole32",
         "ws2_32", "secur32", "mfplat", "mfuuid"
@@ -88,9 +99,7 @@ elif platform == "android" or platform == "linux":
 
 lib_path = "godot_project/addons/video_encoder/bin/{}/{}".format(platform, lib_name)
 
-# Ensure output directory exists
 env.Dir(os.path.dirname(lib_path))
 
-# Build the library
 library = env.SharedLibrary(target=lib_path, source=sources)
 Default(library)
