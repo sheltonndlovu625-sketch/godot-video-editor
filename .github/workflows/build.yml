@@ -113,6 +113,10 @@ jobs:
         id: setup-ndk
         with:
           ndk-version: r26b
+      - name: Symlink NDK for godot-cpp
+        run: |
+          sudo mkdir -p /usr/local/lib/android/sdk/ndk
+          sudo ln -s ${{ steps.setup-ndk.outputs.ndk-path }} /usr/local/lib/android/sdk/ndk/23.2.8568313
       - name: Install SCons
         run: pip install scons
       - name: Build FFmpeg Android
@@ -122,19 +126,16 @@ jobs:
           GITHUB_WORKSPACE: ${{ github.workspace }}
       - name: Build ARM64
         run: |
-          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
           scons platform=android target=template_debug arch=arm64 -j$(nproc)
           scons platform=android target=template_release arch=arm64 -j$(nproc)
       - name: Build ARMv7
         run: |
-          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
           scons platform=android target=template_debug arch=arm32 -j$(nproc)
           scons platform=android target=template_release arch=arm32 -j$(nproc)
       - name: Build x86_64
         run: |
-          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
           scons platform=android target=template_debug arch=x86_64 -j$(nproc)
           scons platform=android target=template_release arch=x86_64 -j$(nproc)
