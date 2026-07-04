@@ -129,21 +129,24 @@ jobs:
       - name: Build ARM64
         run: |
           export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
-          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=arm64 android_api=24 -j$(nproc)
-          scons platform=android target=template_release arch=arm64 android_api=24 -j$(nproc)
+          scons platform=android target=template_debug arch=arm64 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
+          scons platform=android target=template_release arch=arm64 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
+        env:
+          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
       - name: Build ARMv7
         run: |
           export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
-          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=arm32 android_api=24 -j$(nproc)
-          scons platform=android target=template_release arch=arm32 android_api=24 -j$(nproc)
+          scons platform=android target=template_debug arch=arm32 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
+          scons platform=android target=template_release arch=arm32 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
+        env:
+          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
       - name: Build x86_64
         run: |
           export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
-          export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=x86_64 android_api=24 -j$(nproc)
-          scons platform=android target=template_release arch=x86_64 android_api=24 -j$(nproc)
+          scons platform=android target=template_debug arch=x86_64 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
+          scons platform=android target=template_release arch=x86_64 android_api=24 ndk_path="${{ steps.setup-ndk.outputs.ndk-path }}" -j$(nproc)
+        env:
+          FFMPEG_PATH: ${{ github.workspace }}/ffmpeg-android
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -162,31 +165,109 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: brew install ffmpeg scons
-      - name: Setup FFmpeg iOS
+        run: brew install scons nasm
+      - name: Build FFmpeg for iOS
         run: |
-          mkdir -p ffmpeg-ios/include ffmpeg-ios/lib
-          FFMPEG_MAC=$(brew --prefix ffmpeg)
-          cp -r $FFMPEG_MAC/include/libavcodec ffmpeg-ios/include/ || true
-          cp -r $FFMPEG_MAC/include/libavformat ffmpeg-ios/include/ || true
-          cp -r $FFMPEG_MAC/include/libavutil ffmpeg-ios/include/ || true
-          cp -r $FFMPEG_MAC/include/libswscale ffmpeg-ios/include/ || true
-          cp -r $FFMPEG_MAC/include/libswresample ffmpeg-ios/include/ || true
-          cp $FFMPEG_MAC/lib/libavcodec.dylib ffmpeg-ios/lib/ || true
-          cp $FFMPEG_MAC/lib/libavformat.dylib ffmpeg-ios/lib/ || true
-          cp $FFMPEG_MAC/lib/libavutil.dylib ffmpeg-ios/lib/ || true
-          cp $FFMPEG_MAC/lib/libswscale.dylib ffmpeg-ios/lib/ || true
-          cp $FFMPEG_MAC/lib/libswresample.dylib ffmpeg-ios/lib/ || true
+          mkdir -p ffmpeg-ios
+          cd ffmpeg-ios
+          wget -q https://ffmpeg.org/releases/ffmpeg-6.1.tar.xz
+          tar -xf ffmpeg-6.1.tar.xz
+          cd ffmpeg-6.1
+          
+          # iOS Simulator x86_64 build
+          ./configure \
+            --target-os=darwin \
+            --arch=x86_64 \
+            --cpu=x86_64 \
+            --enable-cross-compile \
+            --sysroot=$(xcrun --sdk iphonesimulator --show-sdk-path) \
+            --cc="$(xcrun --find clang) -arch x86_64 -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path)" \
+            --prefix=../build-sim \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-everything \
+            --enable-encoder=h264_videotoolbox \
+            --enable-encoder=aac \
+            --enable-muxer=mp4 \
+            --enable-protocol=file \
+            --enable-filter=scale \
+            --enable-libswscale \
+            --enable-libswresample \
+            --enable-avcodec \
+            --enable-avformat \
+            --enable-avutil \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            || true
+          
+          make -j$(sysctl -n hw.ncpu) || true
+          make install || true
+          cd ..
+          
+          # iOS Device ARM64 build
+          cd ffmpeg-6.1
+          make distclean || true
+          
+          ./configure \
+            --target-os=darwin \
+            --arch=arm64 \
+            --cpu=arm64 \
+            --enable-cross-compile \
+            --sysroot=$(xcrun --sdk iphoneos --show-sdk-path) \
+            --cc="$(xcrun --find clang) -arch arm64 -isysroot $(xcrun --sdk iphoneos --show-sdk-path)" \
+            --prefix=../build-device \
+            --disable-programs \
+            --disable-doc \
+            --disable-network \
+            --disable-everything \
+            --enable-encoder=h264_videotoolbox \
+            --enable-encoder=aac \
+            --enable-muxer=mp4 \
+            --enable-protocol=file \
+            --enable-filter=scale \
+            --enable-libswscale \
+            --enable-libswresample \
+            --enable-avcodec \
+            --enable-avformat \
+            --enable-avutil \
+            --enable-static \
+            --disable-shared \
+            --enable-pic \
+            || true
+          
+          make -j$(sysctl -n hw.ncpu) || true
+          make install || true
+          cd ..
+          
+          # Create unified structure
+          mkdir -p include lib
+          if [ -d build-sim/include ]; then
+            cp -r build-sim/include/* include/ || true
+            cp build-sim/lib/*.a lib/ || true
+          fi
+          if [ -d build-device/include ]; then
+            cp -r build-device/include/* include/ || true
+            cp build-device/lib/*.a lib/ || true
+          fi
+          
+          ls -la include/
+          ls -la lib/
+          cd ..
+
       - name: Build ARM64 Device
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
           scons platform=ios target=template_debug arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu) || true
           scons platform=ios target=template_release arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu) || true
+
       - name: Build x86_64 Simulator
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
           scons platform=ios target=template_debug arch=x86_64 ios_simulator=true -j$(sysctl -n hw.ncpu)
           scons platform=ios target=template_release arch=x86_64 ios_simulator=true -j$(sysctl -n hw.ncpu)
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
