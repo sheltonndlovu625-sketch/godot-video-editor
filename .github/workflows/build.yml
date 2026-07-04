@@ -120,22 +120,10 @@ jobs:
           ls -la /usr/local/lib/android/sdk/ndk/
       - name: Install SCons
         run: pip install scons
-      - name: Setup FFmpeg Android
+      - name: Build FFmpeg Android
         run: |
-          mkdir -p ffmpeg-android
-          cd ffmpeg-android
-          wget --timeout=30 -O ffmpeg-android.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-android64-gpl.tar.xz" 2>&1 || echo "Download failed"
-          if [ -f ffmpeg-android.tar.xz ] && [ -s ffmpeg-android.tar.xz ]; then
-            tar -xf ffmpeg-android.tar.xz
-            if [ -d ffmpeg-master-latest-android64-gpl ]; then
-              cp -r ffmpeg-master-latest-android64-gpl/include ../include
-              cp -r ffmpeg-master-latest-android64-gpl/lib ../lib
-            fi
-          fi
-          cd ..
-          ls -la ffmpeg-android/ || true
-          ls -la ffmpeg-android/include/ 2>/dev/null || echo "No include dir"
-          ls -la ffmpeg-android/lib/ 2>/dev/null || echo "No lib dir"
+          export ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}
+          bash scripts/build_ffmpeg_android.sh
       - name: Build ARM64
         run: |
           export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/23.2.8568313
