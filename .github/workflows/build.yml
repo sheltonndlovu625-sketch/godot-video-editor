@@ -41,8 +41,6 @@ jobs:
     defaults:
       run:
         shell: msys2 {0}
-    env:
-      FFMPEG_PATH: /mingw64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,15 +51,21 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-ffmpeg mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git
       - name: Verify MinGW
         run: |
           which gcc
           gcc --version
+      - name: Build FFmpeg for Windows
+        run: bash scripts/build_ffmpeg_windows.sh
       - name: Build Debug
-        run: scons platform=windows target=template_debug arch=x86_64 use_mingw=yes -j$(nproc)
+        run: |
+          export FFMPEG_PATH="${GITHUB_WORKSPACE}/ffmpeg-windows"
+          scons platform=windows target=template_debug arch=x86_64 use_mingw=yes -j$(nproc)
       - name: Build Release
-        run: scons platform=windows target=template_release arch=x86_64 use_mingw=yes -j$(nproc)
+        run: |
+          export FFMPEG_PATH="${GITHUB_WORKSPACE}/ffmpeg-windows"
+          scons platform=windows target=template_release arch=x86_64 use_mingw=yes -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
