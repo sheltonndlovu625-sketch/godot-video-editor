@@ -1,7 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-NDK="${ANDROID_NDK_ROOT:-/usr/local/lib/android/sdk/ndk/26.1.1090913}"
+NDK="${ANDROID_NDK_ROOT:-}"
+if [ -z "$NDK" ]; then
+    echo "ERROR: ANDROID_NDK_ROOT not set"
+    exit 1
+fi
+
 TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
 API_LEVEL=24
 
@@ -19,9 +24,12 @@ if [ ! -d "ffmpeg-$FFMPEG_VERSION" ]; then
     tar -xf "$FFMPEG_TAR"
 fi
 
-cd "ffmpeg-$FFMPEG_VERSION"
+SRC_DIR="$WORKSPACE/ffmpeg-$FFMPEG_VERSION"
 
 COMMON_FLAGS=(
+    --prefix=OUT_DIR
+    --target-os=android
+    --enable-cross-compile
     --disable-programs
     --disable-doc
     --disable-shared
@@ -35,6 +43,7 @@ COMMON_FLAGS=(
     --disable-postproc
     --disable-avdevice
     --disable-network
+    --disable-stripping
     --enable-encoder=mjpeg
     --enable-encoder=png
     --enable-decoder=h264
@@ -48,27 +57,28 @@ COMMON_FLAGS=(
 build_arch() {
     local ARCH=$1
     local CPU=$2
-    local TRIPLE=$3
-    local CLANG_PREFIX=$4
+    local CLANG_PREFIX=$3
+    local OUT_DIR="$INSTALL_PREFIX/$ARCH"
 
     echo "=== Building FFmpeg for Android $ARCH ==="
-
-    local OUT_DIR="$INSTALL_PREFIX/$ARCH"
     mkdir -p "$OUT_DIR"
 
-    ./configure \
+    local BUILD_DIR="$WORKSPACE/build-ffmpeg-android-$ARCH"
+    rm -rf "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+
+    "$SRC_DIR/configure" \
         --prefix="$OUT_DIR" \
-        --target-os=android \
         --arch="$ARCH" \
         --cpu="$CPU" \
-        --enable-cross-compile \
         --cc="$TOOLCHAIN/bin/${CLANG_PREFIX}${API_LEVEL}-clang" \
         --cxx="$TOOLCHAIN/bin/${CLANG_PREFIX}${API_LEVEL}-clang++" \
         --ar="$TOOLCHAIN/bin/llvm-ar" \
+        --as="$TOOLCHAIN/bin/${CLANG_PREFIX}${API_LEVEL}-clang" \
         --strip="$TOOLCHAIN/bin/llvm-strip" \
         --nm="$TOOLCHAIN/bin/llvm-nm" \
         --ranlib="$TOOLCHAIN/bin/llvm-ranlib" \
-        --cross-prefix="$TOOLCHAIN/bin/${TRIPLE}-" \
         --sysroot="$TOOLCHAIN/sysroot" \
         --extra-cflags="-O3 -fPIC" \
         --extra-ldflags="-O3" \
@@ -76,12 +86,11 @@ build_arch() {
 
     make -j$(nproc)
     make install
-    make distclean || true
 }
 
-build_arch "aarch64" "armv8-a" "aarch64-linux-android" "aarch64-linux-android"
-build_arch "arm"     "armv7-a" "arm-linux-androideabi" "armv7a-linux-androideabi"
-build_arch "x86_64"  "x86-64"  "x86_64-linux-android"  "x86_64-linux-android"
+build_arch "aarch64" "armv8-a" "aarch64-linux-android"
+build_arch "arm"     "armv7-a" "armv7a-linux-androideabi"
+build_arch "x86_64"  "x86-64"  "x86_64-linux-android"
 
 echo "=== FFmpeg Android build complete ==="
 echo "Libraries installed to: $INSTALL_PREFIX"
