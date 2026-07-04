@@ -58,11 +58,11 @@ COMMON_FLAGS=(
     --enable-filter=scale
     --enable-filter=format
     --enable-filter=fps
-    --enable-libswscale
-    --enable-libavformat
-    --enable-libavcodec
-    --enable-libavutil
-    --enable-libswresample
+    --enable-swscale
+    --enable-avformat
+    --enable-avcodec
+    --enable-avutil
+    --enable-swresample
     --disable-libsoxr
     --extra-cflags="-O2"
     --extra-ldflags="-static"
