@@ -1,60 +1,92 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-FFMPEG_VERSION="6.1"
-BUILD_DIR="$(pwd)/ffmpeg-ios"
-IOS_DEPLOYMENT_TARGET="13.0"
+WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
+INSTALL_PREFIX="$WORKSPACE/ffmpeg-ios"
+mkdir -p "$INSTALL_PREFIX"
 
-mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
+FFMPEG_VERSION="6.1.1"
+FFMPEG_TAR="ffmpeg-$FFMPEG_VERSION.tar.xz"
+FFMPEG_URL="https://ffmpeg.org/releases/$FFMPEG_TAR"
 
-echo "=== DOWNLOAD ==="
-wget -q --show-progress "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
-tar -xf "ffmpeg-${FFMPEG_VERSION}.tar.xz"
-cd "ffmpeg-${FFMPEG_VERSION}"
+if [ ! -d "ffmpeg-$FFMPEG_VERSION" ]; then
+    echo "Downloading FFmpeg $FFMPEG_VERSION..."
+    wget -q "$FFMPEG_URL" || curl -L -o "$FFMPEG_TAR" "$FFMPEG_URL"
+    tar -xf "$FFMPEG_TAR"
+fi
 
-SYSROOT=$(xcrun --sdk iphonesimulator --show-sdk-path)
-CC="$(xcrun --find clang)"
+SRC_DIR="$WORKSPACE/ffmpeg-$FFMPEG_VERSION"
 
-echo "=== CONFIGURE iOS SIM ==="
-./configure \
-    --prefix="$BUILD_DIR/build-sim" \
-    --target-os=darwin \
-    --arch=x86_64 \
-    --cpu=x86_64 \
-    --enable-cross-compile \
-    --sysroot="$SYSROOT" \
-    --cc="$CC" \
-    --extra-cflags="-arch x86_64 -isysroot $SYSROOT -mios-version-min=$IOS_DEPLOYMENT_TARGET" \
-    --extra-ldflags="-arch x86_64 -isysroot $SYSROOT -mios-version-min=$IOS_DEPLOYMENT_TARGET" \
-    --disable-programs \
-    --disable-doc \
-    --disable-network \
-    --disable-everything \
-    --enable-avcodec \
-    --enable-avformat \
-    --enable-avutil \
-    --enable-swscale \
-    --enable-swresample \
-    --enable-encoder=h264_videotoolbox \
-    --enable-muxer=mp4 \
-    --enable-protocol=file \
-    --enable-static \
-    --disable-shared \
-    --enable-pic \
-    --disable-asm \
-    --disable-stripping 2>&1 | tail -30
+COMMON_FLAGS=(
+    --target-os=darwin
+    --enable-cross-compile
+    --disable-programs
+    --disable-doc
+    --disable-shared
+    --enable-static
+    --enable-gpl
+    --enable-version3
+    --disable-asm
+    --disable-x86asm
+    --disable-inline-asm
+    --disable-stripping
+    --disable-bzlib
+    --disable-libopenjpeg
+    --disable-iconv
+    --disable-zlib
+    --disable-everything
+    --enable-decoder=h264
+    --enable-decoder=hevc
+    --enable-decoder=mpeg4
+    --enable-decoder=vp8
+    --enable-decoder=vp9
+    --enable-decoder=av1
+    --enable-encoder=mjpeg
+    --enable-encoder=png
+)
 
-echo "=== MAKE ==="
-make -j$(sysctl -n hw.ncpu) 2>&1 | tail -10
-make install
+build_ios() {
+    local ARCH=$1
+    local SDK=$2
+    local OUT_DIR="$INSTALL_PREFIX/$ARCH"
 
-echo "=== RESULTS ==="
-ls -la "$BUILD_DIR/build-sim/include/" 2>/dev/null || true
-ls -la "$BUILD_DIR/build-sim/lib/" 2>/dev/null || true
+    echo "=== Building FFmpeg for iOS $ARCH ($SDK) ==="
+    mkdir -p "$OUT_DIR"
 
-mkdir -p "$BUILD_DIR/include" "$BUILD_DIR/lib"
-cp -r "$BUILD_DIR/build-sim/include/"* "$BUILD_DIR/include/" 2>/dev/null || true
-cp "$BUILD_DIR/build-sim/lib/"*.a "$BUILD_DIR/lib/" 2>/dev/null || true
-ls -la "$BUILD_DIR/include/" || true
-ls -la "$BUILD_DIR/lib/" || true
+    local BUILD_DIR="$WORKSPACE/build-ffmpeg-ios-$ARCH"
+    rm -rf "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+
+    local SYSROOT
+    SYSROOT=$(xcrun -sdk "$SDK" --show-sdk-path)
+    local CC="xcrun -sdk $SDK clang"
+    local CXX="xcrun -sdk $SDK clang++"
+
+    "$SRC_DIR/configure" \
+        --prefix="$OUT_DIR" \
+        --arch="$ARCH" \
+        --cc="$CC" \
+        --cxx="$CXX" \
+        --ar="xcrun ar" \
+        --strip="xcrun strip" \
+        --nm="xcrun nm" \
+        --ranlib="xcrun ranlib" \
+        --sysroot="$SYSROOT" \
+        --extra-cflags="-arch $ARCH -mios-version-min=12.0 -O3 -fPIC" \
+        --extra-ldflags="-arch $ARCH -mios-version-min=12.0 -O3" \
+        "${COMMON_FLAGS[@]}" || {
+            echo "=== CONFIGURE FAILED for iOS $ARCH ==="
+            tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
+            exit 1
+        }
+
+    make -j$(sysctl -n hw.ncpu)
+    make install
+}
+
+build_ios "arm64" "iphoneos"
+build_ios "x86_64" "iphonesimulator"
+
+echo "=== FFmpeg iOS build complete ==="
+echo "Libraries installed to: $INSTALL_PREFIX"
