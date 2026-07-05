@@ -1,3 +1,19 @@
+#include <godot_cpp/classes/project_settings.hpp>
+
+static String resolve_path(String p_path) {
+    if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
+        ProjectSettings *ps = ProjectSettings::get_singleton();
+        if (ps) return ps->globalize_path(p_path);
+    }
+    return p_path;
+}
+
+static void log_av_error(const char *prefix, int errnum) {
+    char errbuf[256];
+    av_strerror(errnum, errbuf, sizeof(errbuf));
+    godot::UtilityFunctions::push_error(godot::String("[VideoDecoder] ") + prefix + ": " + errbuf);
+}
+
 #include "video_decoder.h"
 
 using namespace godot;
@@ -25,9 +41,13 @@ VideoDecoder::~VideoDecoder() {
 }
 
 bool VideoDecoder::open(String p_path) {
-    int ret = avformat_open_input(&format_ctx, p_path.utf8().get_data(), nullptr, nullptr);
+    String resolved_path = resolve_path(p_path);
+    const char *path_utf8 = resolved_path.utf8().get_data();
+
+    int ret = avformat_open_input(&format_ctx, path_utf8, nullptr, nullptr);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoDecoder] Could not open input file");
+        log_av_error("avformat_open_input failed", ret);
+        UtilityFunctions::push_error("[VideoDecoder] Could not open input file: ", resolved_path);
         return false;
     }
 
@@ -167,7 +187,7 @@ bool VideoDecoder::open(String p_path) {
     }
 
     initialized = true;
-    UtilityFunctions::print("[VideoDecoder] Opened: ", p_path, " (", video_codec_ctx->width, "x", video_codec_ctx->height, ")");
+    UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", video_codec_ctx->width, "x", video_codec_ctx->height, ")");
     return true;
 }
 

@@ -5,10 +5,15 @@
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
 
+extern "C" {
+#include <libavformat/avformat.h>
+}
+
 using namespace godot;
 
 void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
     if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+        avformat_network_init();
         ClassDB::register_class<VideoEncoder>();
         ClassDB::register_class<VideoDecoder>();
     }
@@ -16,7 +21,7 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
 
 void uninitialize_video_encoder_module(ModuleInitializationLevel p_level) {
     if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-        // Cleanup if needed
+        avformat_network_deinit();
     }
 }
 

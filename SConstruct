@@ -44,8 +44,7 @@ if ffmpeg_path:
     else:
         print("WARNING: FFmpeg lib not found: " + ffmpeg_lib)
 
-ffmpeg_libs = ["avcodec", "avformat", "avutil", "swscale", "swresample"]
-env.Append(LIBS=ffmpeg_libs)
+ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 
 # ------------------------------------------------------------------
 # Platform-Specific Tweaks
@@ -53,6 +52,12 @@ env.Append(LIBS=ffmpeg_libs)
 if env["platform"] == "android":
     env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
     env.Append(LIBS=["android", "log"])
+    # CRITICAL: --whole-archive keeps FFmpeg's constructor-registered muxers/demuxers/codecs
+    env.Append(LINKFLAGS=[
+        "-Wl,--whole-archive",
+        "-lavformat", "-lavcodec", "-lswresample", "-lswscale", "-lavutil",
+        "-Wl,--no-whole-archive"
+    ])
 
 elif env["platform"] == "ios":
     env.Append(CPPDEFINES=["IOS_ENABLED"])
@@ -62,17 +67,25 @@ elif env["platform"] == "ios":
         "-framework", "CoreMedia",
         "-framework", "AVFoundation",
     ])
+    if ffmpeg_path and os.path.exists(ffmpeg_lib):
+        for lib in ffmpeg_libs:
+            lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
+            if os.path.exists(lib_path):
+                env.Append(LINKFLAGS=["-Wl,-force_load," + lib_path])
 
 elif env["platform"] == "windows":
+    env.Append(LIBS=ffmpeg_libs)
     env.Append(LIBS=[
         "bcrypt", "strmiids", "uuid", "ole32",
         "ws2_32", "secur32", "mfplat", "mfuuid"
     ])
 
 elif env["platform"] == "linux":
+    env.Append(LIBS=ffmpeg_libs)
     env.Append(LIBS=["pthread", "dl", "m"])
 
 elif env["platform"] == "macos":
+    env.Append(LIBS=ffmpeg_libs)
     env.Append(LINKFLAGS=[
         "-framework", "Foundation",
         "-framework", "CoreVideo",
@@ -98,8 +111,6 @@ elif platform == "android" or platform == "linux":
     lib_name += ".so"
 
 lib_path = "godot_project/addons/video_encoder/bin/{}/{}".format(platform, lib_name)
-
-env.Dir(os.path.dirname(lib_path))
 
 library = env.SharedLibrary(target=lib_path, source=sources)
 Default(library)

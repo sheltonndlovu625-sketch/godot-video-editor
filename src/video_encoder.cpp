@@ -1,3 +1,35 @@
+#include <godot_cpp/classes/project_settings.hpp>
+
+static String resolve_path(String p_path) {
+    if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
+        ProjectSettings *ps = ProjectSettings::get_singleton();
+        if (ps) return ps->globalize_path(p_path);
+    }
+    return p_path;
+}
+
+static void log_av_error(const char *prefix, int errnum) {
+    char errbuf[256];
+    av_strerror(errnum, errbuf, sizeof(errbuf));
+    godot::UtilityFunctions::push_error(godot::String("[VideoEncoder] ") + prefix + ": " + errbuf);
+}
+
+#include <godot_cpp/classes/project_settings.hpp>
+
+static String resolve_path(String p_path) {
+    if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
+        ProjectSettings *ps = ProjectSettings::get_singleton();
+        if (ps) return ps->globalize_path(p_path);
+    }
+    return p_path;
+}
+
+static void log_av_error(const char *prefix, int errnum) {
+    char errbuf[256];
+    av_strerror(errnum, errbuf, sizeof(errbuf));
+    godot::UtilityFunctions::push_error(godot::String("[VideoEncoder] ") + prefix + ": " + errbuf);
+}
+
 #include "video_encoder.h"
 
 using namespace godot;
@@ -153,7 +185,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
         audio_stream->time_base = audio_codec_ctx->time_base;
     }
 
-    ret = avio_open(&format_ctx->pb, p_path.utf8().get_data(), AVIO_FLAG_WRITE);
+    ret = avio_open(&format_ctx->pb, path_utf8, AVIO_FLAG_WRITE);
     if (ret < 0) {
         UtilityFunctions::push_error("[VideoEncoder] Could not open output file");
         return false;
@@ -238,7 +270,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     initialized = true;
     video_frame_count = 0;
     audio_samples_count = 0;
-    UtilityFunctions::print("[VideoEncoder] Opened: ", p_path);
+    UtilityFunctions::print("[VideoEncoder] Opened: ", resolved_path);
     return true;
 }
 
