@@ -76,7 +76,7 @@ cd "$BUILD_DIR"
 "$SRC_DIR/configure" \
     --prefix="$INSTALL_PREFIX" \
     --extra-cflags="-O3 -fPIC" \
-    --extra-ldflags="-O3" \
+    --extra-ldflags="-O3 -fPIC" \
     "${COMMON_FLAGS[@]}" || {
         echo "=== CONFIGURE FAILED for Linux ==="
         tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
