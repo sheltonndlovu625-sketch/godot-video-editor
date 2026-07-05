@@ -20,7 +20,6 @@ SRC_DIR="$WORKSPACE/ffmpeg-$FFMPEG_VERSION"
 COMMON_FLAGS=(
     --target-os=mingw32
     --arch=x86_64
-    --cross-prefix=x86_64-w64-mingw32-
     --cc=x86_64-w64-mingw32-gcc
     --cxx=x86_64-w64-mingw32-g++
     --enable-static
