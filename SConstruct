@@ -52,7 +52,6 @@ ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 if env["platform"] == "android":
     env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
     env.Append(LIBS=["android", "log"])
-    # CRITICAL: --whole-archive keeps FFmpeg's constructor-registered muxers/demuxers/codecs
     env.Append(LINKFLAGS=[
         "-Wl,--whole-archive",
         "-lavformat", "-lavcodec", "-lswresample", "-lswscale", "-lavutil",
@@ -66,6 +65,7 @@ elif env["platform"] == "ios":
         "-framework", "CoreVideo",
         "-framework", "CoreMedia",
         "-framework", "AVFoundation",
+        "-framework", "VideoToolbox",
     ])
     if ffmpeg_path and os.path.exists(ffmpeg_lib):
         for lib in ffmpeg_libs:
