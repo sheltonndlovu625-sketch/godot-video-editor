@@ -40,6 +40,7 @@ COMMON_FLAGS=(
     --enable-decoder=mpeg4
     --enable-decoder=vp8
     --enable-decoder=vp9
+    --enable-decoder=mp3
     --enable-encoder=mjpeg
     --enable-encoder=png
     --enable-demuxer=mov
