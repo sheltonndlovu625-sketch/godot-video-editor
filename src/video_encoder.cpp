@@ -55,6 +55,11 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
 
     avformat_alloc_output_context2(&format_ctx, nullptr, nullptr, p_path.utf8().get_data());
     if (!format_ctx) {
+        char errbuf[256];
+        av_strerror(AVERROR(EINVAL), errbuf, sizeof(errbuf));
+        UtilityFunctions::push_error("[VideoEncoder] avformat_alloc_output_context2 failed: ", String(errbuf));
+    }
+    if (!format_ctx) {
         UtilityFunctions::push_error("[VideoEncoder] Could not allocate output context");
         return false;
     }

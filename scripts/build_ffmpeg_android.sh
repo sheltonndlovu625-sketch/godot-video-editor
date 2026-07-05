@@ -55,11 +55,20 @@ COMMON_FLAGS=(
     --enable-encoder=aac \
     --enable-swresample \
     --enable-protocol=file \
+    --enable-demuxer=mp4,mov \
+    --enable-parser=mjpeg,aac,h264,hevc \
+    --enable-muxer=mp4,mov \
     --enable-encoder=aac \
     --enable-swresample \
     --enable-protocol=file \
+    --enable-demuxer=mp4,mov \
+    --enable-parser=mjpeg,aac,h264,hevc \
+    --enable-muxer=mp4,mov \
     --enable-swresample \
     --enable-protocol=file \
+    --enable-demuxer=mp4,mov \
+    --enable-parser=mjpeg,aac,h264,hevc \
+    --enable-muxer=mp4,mov \
     --enable-encoder=png
 )
 
