@@ -8,8 +8,16 @@ void VideoEncoder::_bind_methods() {
         &VideoEncoder::open
     );
     ClassDB::bind_method(
+        D_METHOD("open_with_audio", "path", "width", "height", "fps", "video_bitrate", "sample_rate", "channels", "audio_bitrate"),
+        &VideoEncoder::open_with_audio
+    );
+    ClassDB::bind_method(
         D_METHOD("write_frame", "image"),
         &VideoEncoder::write_frame
+    );
+    ClassDB::bind_method(
+        D_METHOD("write_audio", "samples"),
+        &VideoEncoder::write_audio
     );
     ClassDB::bind_method(
         D_METHOD("close"),
@@ -30,102 +38,140 @@ VideoEncoder::~VideoEncoder() {
 }
 
 bool VideoEncoder::open(String p_path, int p_width, int p_height, int p_fps, int p_bitrate) {
+    return open_with_audio(p_path, p_width, p_height, p_fps, p_bitrate, 0, 0, 0);
+}
+
+bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_channels, int p_audio_bitrate) {
     width = p_width;
     height = p_height;
     fps = p_fps;
 
-    // Allocate output context (auto-detect format from extension, e.g. .mp4)
+    if (p_sample_rate > 0) {
+        has_audio = true;
+        sample_rate = p_sample_rate;
+        channels = p_channels;
+        audio_bitrate = p_audio_bitrate;
+    }
+
     avformat_alloc_output_context2(&format_ctx, nullptr, nullptr, p_path.utf8().get_data());
     if (!format_ctx) {
         UtilityFunctions::push_error("[VideoEncoder] Could not allocate output context");
         return false;
     }
 
-    // Find H.264 encoder
-    const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-    if (!codec) {
-        UtilityFunctions::push_error("[VideoEncoder] H.264 encoder not found");
+    const AVCodec *video_codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    if (!video_codec) {
+        UtilityFunctions::push_error("[VideoEncoder] MJPEG encoder not found");
         return false;
     }
 
-    // Create stream
-    stream = avformat_new_stream(format_ctx, nullptr);
-    if (!stream) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not create stream");
+    video_stream = avformat_new_stream(format_ctx, nullptr);
+    if (!video_stream) {
+        UtilityFunctions::push_error("[VideoEncoder] Could not create video stream");
         return false;
     }
-    stream->id = format_ctx->nb_streams - 1;
+    video_stream->id = format_ctx->nb_streams - 1;
 
-    // Allocate codec context
-    codec_ctx = avcodec_alloc_context3(codec);
-    if (!codec_ctx) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not allocate codec context");
+    video_codec_ctx = avcodec_alloc_context3(video_codec);
+    if (!video_codec_ctx) {
+        UtilityFunctions::push_error("[VideoEncoder] Could not allocate video codec context");
         return false;
     }
 
-    // Configure encoder
-    codec_ctx->width = width;
-    codec_ctx->height = height;
-    codec_ctx->time_base = (AVRational){1, fps};
-    codec_ctx->framerate = (AVRational){fps, 1};
-    codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    codec_ctx->bit_rate = p_bitrate;
-    codec_ctx->gop_size = 12;
-    codec_ctx->max_b_frames = 2;
+    video_codec_ctx->width = width;
+    video_codec_ctx->height = height;
+    video_codec_ctx->time_base = (AVRational){1, fps};
+    video_codec_ctx->framerate = (AVRational){fps, 1};
+    video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    video_codec_ctx->bit_rate = p_video_bitrate;
+    video_codec_ctx->gop_size = 12;
+    video_codec_ctx->max_b_frames = 2;
 
     if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
-        codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
 
-    // Open codec
-    AVDictionary *opts = nullptr;
-    av_dict_set(&opts, "preset", "fast", 0);
-    av_dict_set(&opts, "crf", "23", 0);
-    av_dict_set(&opts, "tune", "zerolatency", 0);
-
-    int ret = avcodec_open2(codec_ctx, codec, &opts);
-    av_dict_free(&opts);
+    int ret = avcodec_open2(video_codec_ctx, video_codec, nullptr);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not open codec");
+        UtilityFunctions::push_error("[VideoEncoder] Could not open video codec");
         return false;
     }
 
-    // Copy codec parameters to stream
-    ret = avcodec_parameters_from_context(stream->codecpar, codec_ctx);
+    ret = avcodec_parameters_from_context(video_stream->codecpar, video_codec_ctx);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not copy codec params");
+        UtilityFunctions::push_error("[VideoEncoder] Could not copy video codec params");
         return false;
     }
-    stream->time_base = codec_ctx->time_base;
+    video_stream->time_base = video_codec_ctx->time_base;
 
-    // Open output file
+    if (has_audio) {
+        const AVCodec *audio_codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+        if (!audio_codec) {
+            UtilityFunctions::push_error("[VideoEncoder] AAC encoder not found");
+            return false;
+        }
+
+        audio_stream = avformat_new_stream(format_ctx, nullptr);
+        if (!audio_stream) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not create audio stream");
+            return false;
+        }
+        audio_stream->id = format_ctx->nb_streams - 1;
+
+        audio_codec_ctx = avcodec_alloc_context3(audio_codec);
+        if (!audio_codec_ctx) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate audio codec context");
+            return false;
+        }
+
+        audio_codec_ctx->sample_rate = sample_rate;
+        audio_codec_ctx->bit_rate = audio_bitrate;
+        av_channel_layout_default(&audio_codec_ctx->ch_layout, channels);
+        audio_codec_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
+        audio_codec_ctx->time_base = (AVRational){1, sample_rate};
+
+        if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
+            audio_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        }
+
+        ret = avcodec_open2(audio_codec_ctx, audio_codec, nullptr);
+        if (ret < 0) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not open audio codec");
+            return false;
+        }
+
+        ret = avcodec_parameters_from_context(audio_stream->codecpar, audio_codec_ctx);
+        if (ret < 0) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not copy audio codec params");
+            return false;
+        }
+        audio_stream->time_base = audio_codec_ctx->time_base;
+    }
+
     ret = avio_open(&format_ctx->pb, p_path.utf8().get_data(), AVIO_FLAG_WRITE);
     if (ret < 0) {
         UtilityFunctions::push_error("[VideoEncoder] Could not open output file");
         return false;
     }
 
-    // Write header
     ret = avformat_write_header(format_ctx, nullptr);
     if (ret < 0) {
         UtilityFunctions::push_error("[VideoEncoder] Error writing header");
         return false;
     }
 
-    // Allocate frame
-    frame = av_frame_alloc();
-    frame->format = AV_PIX_FMT_YUV420P;
-    frame->width = width;
-    frame->height = height;
-    ret = av_frame_get_buffer(frame, 0);
+    video_frame = av_frame_alloc();
+    video_frame->format = AV_PIX_FMT_YUV420P;
+    video_frame->width = width;
+    video_frame->height = height;
+    ret = av_frame_get_buffer(video_frame, 0);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not allocate frame buffer");
+        UtilityFunctions::push_error("[VideoEncoder] Could not allocate video frame buffer");
         return false;
     }
 
     packet = av_packet_alloc();
 
-    // Setup scaler: RGBA -> YUV420P
     sws_ctx = sws_getContext(
         width, height, AV_PIX_FMT_RGBA,
         width, height, AV_PIX_FMT_YUV420P,
@@ -136,8 +182,57 @@ bool VideoEncoder::open(String p_path, int p_width, int p_height, int p_fps, int
         return false;
     }
 
+    if (has_audio) {
+        audio_frame = av_frame_alloc();
+        audio_frame->format = AV_SAMPLE_FMT_FLTP;
+        audio_frame->ch_layout = audio_codec_ctx->ch_layout;
+        audio_frame->sample_rate = audio_codec_ctx->sample_rate;
+        audio_frame->nb_samples = audio_codec_ctx->frame_size;
+        if (audio_frame->nb_samples == 0) {
+            audio_frame->nb_samples = 1024;
+        }
+        ret = av_frame_get_buffer(audio_frame, 0);
+        if (ret < 0) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate audio frame buffer");
+            return false;
+        }
+
+        swr_ctx = swr_alloc();
+        if (!swr_ctx) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate resampler");
+            return false;
+        }
+
+        AVChannelLayout src_ch_layout;
+        av_channel_layout_default(&src_ch_layout, channels);
+
+        ret = swr_alloc_set_opts2(&swr_ctx,
+            &audio_codec_ctx->ch_layout, AV_SAMPLE_FMT_FLTP, sample_rate,
+            &src_ch_layout, AV_SAMPLE_FMT_FLT, sample_rate,
+            0, nullptr);
+        av_channel_layout_uninit(&src_ch_layout);
+
+        if (ret < 0) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not set resampler options");
+            return false;
+        }
+
+        ret = swr_init(swr_ctx);
+        if (ret < 0) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not initialize resampler");
+            return false;
+        }
+
+        audio_fifo = av_audio_fifo_alloc(AV_SAMPLE_FMT_FLTP, channels, audio_frame->nb_samples);
+        if (!audio_fifo) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate audio FIFO");
+            return false;
+        }
+    }
+
     initialized = true;
-    frame_count = 0;
+    video_frame_count = 0;
+    audio_samples_count = 0;
     UtilityFunctions::print("[VideoEncoder] Opened: ", p_path);
     return true;
 }
@@ -147,46 +242,112 @@ bool VideoEncoder::write_frame(Ref<Image> p_image) {
         return false;
     }
 
-    // Get raw RGBA bytes from Godot Image
     PackedByteArray data = p_image->get_data();
     if (data.size() == 0) {
         return false;
     }
 
     const uint8_t *src_data[1] = { data.ptr() };
-    int src_linesize[1] = { 4 * width }; // RGBA = 4 bytes per pixel
+    int src_linesize[1] = { 4 * width };
 
-    // Convert to YUV420P
-    sws_scale(sws_ctx, src_data, src_linesize, 0, height, frame->data, frame->linesize);
+    sws_scale(sws_ctx, src_data, src_linesize, 0, height, video_frame->data, video_frame->linesize);
 
-    frame->pts = frame_count++;
+    video_frame->pts = video_frame_count++;
 
-    // Send frame to encoder
-    int ret = avcodec_send_frame(codec_ctx, frame);
+    int ret = avcodec_send_frame(video_codec_ctx, video_frame);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Error sending frame");
+        UtilityFunctions::push_error("[VideoEncoder] Error sending video frame");
         return false;
     }
 
-    // Receive packets
     while (ret >= 0) {
-        ret = avcodec_receive_packet(codec_ctx, packet);
+        ret = avcodec_receive_packet(video_codec_ctx, packet);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             break;
         }
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Error encoding frame");
+            UtilityFunctions::push_error("[VideoEncoder] Error encoding video frame");
             return false;
         }
 
-        av_packet_rescale_ts(packet, codec_ctx->time_base, stream->time_base);
-        packet->stream_index = stream->index;
+        av_packet_rescale_ts(packet, video_codec_ctx->time_base, video_stream->time_base);
+        packet->stream_index = video_stream->index;
 
         ret = av_interleaved_write_frame(format_ctx, packet);
         av_packet_unref(packet);
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Error writing packet");
+            UtilityFunctions::push_error("[VideoEncoder] Error writing video packet");
             return false;
+        }
+    }
+
+    return true;
+}
+
+bool VideoEncoder::write_audio(PackedFloat32Array p_samples) {
+    if (!initialized || !has_audio || p_samples.size() == 0) {
+        return false;
+    }
+
+    int num_samples = p_samples.size() / channels;
+    const uint8_t *src_data = (const uint8_t *)p_samples.ptr();
+
+    int max_out_samples = swr_get_out_samples(swr_ctx, num_samples);
+    if (max_out_samples <= 0) {
+        return false;
+    }
+
+    uint8_t **dst_data = nullptr;
+    int dst_linesize;
+    av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, channels,
+        max_out_samples, AV_SAMPLE_FMT_FLTP, 0);
+
+    int converted = swr_convert(swr_ctx, dst_data, max_out_samples,
+        &src_data, num_samples);
+
+    if (converted < 0) {
+        av_freep(&dst_data[0]);
+        av_freep(&dst_data);
+        UtilityFunctions::push_error("[VideoEncoder] Audio resampling failed");
+        return false;
+    }
+
+    av_audio_fifo_write(audio_fifo, (void **)dst_data, converted);
+
+    av_freep(&dst_data[0]);
+    av_freep(&dst_data);
+
+    while (av_audio_fifo_size(audio_fifo) >= audio_codec_ctx->frame_size) {
+        av_audio_fifo_read(audio_fifo, (void **)audio_frame->data, audio_codec_ctx->frame_size);
+
+        audio_frame->pts = audio_samples_count;
+        audio_samples_count += audio_codec_ctx->frame_size;
+
+        int ret = avcodec_send_frame(audio_codec_ctx, audio_frame);
+        if (ret < 0) {
+            UtilityFunctions::push_error("[VideoEncoder] Error sending audio frame");
+            return false;
+        }
+
+        while (ret >= 0) {
+            ret = avcodec_receive_packet(audio_codec_ctx, packet);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            }
+            if (ret < 0) {
+                UtilityFunctions::push_error("[VideoEncoder] Error encoding audio");
+                return false;
+            }
+
+            av_packet_rescale_ts(packet, audio_codec_ctx->time_base, audio_stream->time_base);
+            packet->stream_index = audio_stream->index;
+
+            ret = av_interleaved_write_frame(format_ctx, packet);
+            av_packet_unref(packet);
+            if (ret < 0) {
+                UtilityFunctions::push_error("[VideoEncoder] Error writing audio packet");
+                return false;
+            }
         }
     }
 
@@ -198,33 +359,79 @@ void VideoEncoder::close() {
         return;
     }
 
-    // Flush encoder
-    avcodec_send_frame(codec_ctx, nullptr);
+    if (has_audio && audio_codec_ctx) {
+        int fifo_size = av_audio_fifo_size(audio_fifo);
+        while (fifo_size > 0) {
+            int samples_to_read = fifo_size < audio_codec_ctx->frame_size ? fifo_size : audio_codec_ctx->frame_size;
+            av_audio_fifo_read(audio_fifo, (void **)audio_frame->data, samples_to_read);
 
-    int ret;
-    while ((ret = avcodec_receive_packet(codec_ctx, packet)) >= 0) {
-        av_packet_rescale_ts(packet, codec_ctx->time_base, stream->time_base);
-        packet->stream_index = stream->index;
-        av_interleaved_write_frame(format_ctx, packet);
-        av_packet_unref(packet);
+            if (samples_to_read < audio_codec_ctx->frame_size) {
+                av_samples_set_silence(audio_frame->data, samples_to_read,
+                    audio_codec_ctx->frame_size - samples_to_read, channels, AV_SAMPLE_FMT_FLTP);
+            }
+
+            audio_frame->pts = audio_samples_count;
+            audio_samples_count += audio_codec_ctx->frame_size;
+
+            avcodec_send_frame(audio_codec_ctx, audio_frame);
+
+            int ret;
+            while ((ret = avcodec_receive_packet(audio_codec_ctx, packet)) >= 0) {
+                av_packet_rescale_ts(packet, audio_codec_ctx->time_base, audio_stream->time_base);
+                packet->stream_index = audio_stream->index;
+                av_interleaved_write_frame(format_ctx, packet);
+                av_packet_unref(packet);
+            }
+
+            fifo_size = av_audio_fifo_size(audio_fifo);
+        }
+
+        avcodec_send_frame(audio_codec_ctx, nullptr);
+        int ret;
+        while ((ret = avcodec_receive_packet(audio_codec_ctx, packet)) >= 0) {
+            av_packet_rescale_ts(packet, audio_codec_ctx->time_base, audio_stream->time_base);
+            packet->stream_index = audio_stream->index;
+            av_interleaved_write_frame(format_ctx, packet);
+            av_packet_unref(packet);
+        }
     }
 
-    // Write trailer
-    av_write_trailer(format_ctx);
-
-    // Close output
-    if (!(format_ctx->oformat->flags & AVFMT_NOFILE)) {
-        avio_closep(&format_ctx->pb);
+    if (video_codec_ctx) {
+        avcodec_send_frame(video_codec_ctx, nullptr);
+        int ret;
+        while ((ret = avcodec_receive_packet(video_codec_ctx, packet)) >= 0) {
+            av_packet_rescale_ts(packet, video_codec_ctx->time_base, video_stream->time_base);
+            packet->stream_index = video_stream->index;
+            av_interleaved_write_frame(format_ctx, packet);
+            av_packet_unref(packet);
+        }
     }
 
-    // Cleanup
-    av_frame_free(&frame);
+    if (format_ctx) {
+        av_write_trailer(format_ctx);
+        if (format_ctx->oformat && !(format_ctx->oformat->flags & AVFMT_NOFILE)) {
+            avio_closep(&format_ctx->pb);
+        }
+    }
+
+    av_audio_fifo_free(audio_fifo);
+    audio_fifo = nullptr;
+    swr_free(&swr_ctx);
+    av_frame_free(&audio_frame);
+    avcodec_free_context(&audio_codec_ctx);
+
+    av_frame_free(&video_frame);
     av_packet_free(&packet);
-    avcodec_free_context(&codec_ctx);
+    avcodec_free_context(&video_codec_ctx);
     sws_freeContext(sws_ctx);
-    avformat_free_context(format_ctx);
+    sws_ctx = nullptr;
+    avformat_free_context(&format_ctx);
+    format_ctx = nullptr;
 
     initialized = false;
+    has_audio = false;
+    video_frame_count = 0;
+    audio_samples_count = 0;
     UtilityFunctions::print("[VideoEncoder] Closed successfully.");
 }
 
