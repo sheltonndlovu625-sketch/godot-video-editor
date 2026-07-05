@@ -25,11 +25,17 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y scons pkg-config libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
+          sudo apt-get install -y scons pkg-config nasm
+      - name: Build FFmpeg for Linux
+        run: bash scripts/build_ffmpeg_linux.sh
       - name: Build Debug
-        run: scons platform=linux target=template_debug arch=x86_64 -j$(nproc)
+        run: |
+          export FFMPEG_PATH="${GITHUB_WORKSPACE}/ffmpeg-linux"
+          scons platform=linux target=template_debug arch=x86_64 ffmpeg_path="${GITHUB_WORKSPACE}/ffmpeg-linux" -j$(nproc)
       - name: Build Release
-        run: scons platform=linux target=template_release arch=x86_64 -j$(nproc)
+        run: |
+          export FFMPEG_PATH="${GITHUB_WORKSPACE}/ffmpeg-linux"
+          scons platform=linux target=template_release arch=x86_64 ffmpeg_path="${GITHUB_WORKSPACE}/ffmpeg-linux" -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -51,7 +57,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git make diffutils binutils binutils
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git make diffutils binutils nasm
       - name: Verify MinGW
         run: |
           which gcc
@@ -61,11 +67,11 @@ jobs:
       - name: Build Debug
         run: |
           export FFMPEG_PATH="${GITHUB_WORKSPACE}/ffmpeg-windows"
-          scons platform=windows target=template_debug arch=x86_64 use_mingw=yes -j$(nproc)
+          scons platform=windows target=template_debug arch=x86_64 use_mingw=yes ffmpeg_path="${GITHUB_WORKSPACE}/ffmpeg-windows" -j$(nproc)
       - name: Build Release
         run: |
           export FFMPEG_PATH="${GITHUB_WORKSPACE}/ffmpeg-windows"
-          scons platform=windows target=template_release arch=x86_64 use_mingw=yes -j$(nproc)
+          scons platform=windows target=template_release arch=x86_64 use_mingw=yes ffmpeg_path="${GITHUB_WORKSPACE}/ffmpeg-windows" -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -84,17 +90,17 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: brew install ffmpeg scons
+        run: brew install ffmpeg scons nasm
       - name: Build x86_64
         run: |
           export FFMPEG_PATH=$(brew --prefix ffmpeg)
-          scons platform=macos target=template_debug arch=x86_64 -j$(sysctl -n hw.ncpu)
-          scons platform=macos target=template_release arch=x86_64 -j$(sysctl -n hw.ncpu)
+          scons platform=macos target=template_debug arch=x86_64 ffmpeg_path="$(brew --prefix ffmpeg)" -j$(sysctl -n hw.ncpu)
+          scons platform=macos target=template_release arch=x86_64 ffmpeg_path="$(brew --prefix ffmpeg)" -j$(sysctl -n hw.ncpu)
       - name: Build arm64
         run: |
           export FFMPEG_PATH=$(brew --prefix ffmpeg)
-          scons platform=macos target=template_debug arch=arm64 -j$(sysctl -n hw.ncpu)
-          scons platform=macos target=template_release arch=arm64 -j$(sysctl -n hw.ncpu)
+          scons platform=macos target=template_debug arch=arm64 ffmpeg_path="$(brew --prefix ffmpeg)" -j$(sysctl -n hw.ncpu)
+          scons platform=macos target=template_release arch=arm64 ffmpeg_path="$(brew --prefix ffmpeg)" -j$(sysctl -n hw.ncpu)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -131,18 +137,18 @@ jobs:
       - name: Build ARM64
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=arm64 -j$(nproc)
-          scons platform=android target=template_release arch=arm64 -j$(nproc)
+          scons platform=android target=template_debug arch=arm64 ffmpeg_path="${{ github.workspace }}/ffmpeg-android" -j$(nproc)
+          scons platform=android target=template_release arch=arm64 ffmpeg_path="${{ github.workspace }}/ffmpeg-android" -j$(nproc)
       - name: Build ARMv7
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=arm32 -j$(nproc)
-          scons platform=android target=template_release arch=arm32 -j$(nproc)
+          scons platform=android target=template_debug arch=arm32 ffmpeg_path="${{ github.workspace }}/ffmpeg-android" -j$(nproc)
+          scons platform=android target=template_release arch=arm32 ffmpeg_path="${{ github.workspace }}/ffmpeg-android" -j$(nproc)
       - name: Build x86_64
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-android
-          scons platform=android target=template_debug arch=x86_64 -j$(nproc)
-          scons platform=android target=template_release arch=x86_64 -j$(nproc)
+          scons platform=android target=template_debug arch=x86_64 ffmpeg_path="${{ github.workspace }}/ffmpeg-android" -j$(nproc)
+          scons platform=android target=template_release arch=x86_64 ffmpeg_path="${{ github.workspace }}/ffmpeg-android" -j$(nproc)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -167,13 +173,13 @@ jobs:
       - name: Build ARM64 Device
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
-          scons platform=ios target=template_debug arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu)
-          scons platform=ios target=template_release arch=arm64 ios_simulator=false -j$(sysctl -n hw.ncpu)
+          scons platform=ios target=template_debug arch=arm64 ios_simulator=false ffmpeg_path="${{ github.workspace }}/ffmpeg-ios" -j$(sysctl -n hw.ncpu)
+          scons platform=ios target=template_release arch=arm64 ios_simulator=false ffmpeg_path="${{ github.workspace }}/ffmpeg-ios" -j$(sysctl -n hw.ncpu)
       - name: Build x86_64 Simulator
         run: |
           export FFMPEG_PATH=${{ github.workspace }}/ffmpeg-ios
-          scons platform=ios target=template_debug arch=x86_64 ios_simulator=true -j$(sysctl -n hw.ncpu)
-          scons platform=ios target=template_release arch=x86_64 ios_simulator=true -j$(sysctl -n hw.ncpu)
+          scons platform=ios target=template_debug arch=x86_64 ios_simulator=true ffmpeg_path="${{ github.workspace }}/ffmpeg-ios" -j$(sysctl -n hw.ncpu)
+          scons platform=ios target=template_release arch=x86_64 ios_simulator=true ffmpeg_path="${{ github.workspace }}/ffmpeg-ios" -j$(sysctl -n hw.ncpu)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
