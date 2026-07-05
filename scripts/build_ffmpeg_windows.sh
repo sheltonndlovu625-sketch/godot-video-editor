@@ -45,9 +45,12 @@ COMMON_FLAGS=(
     --enable-encoder=mjpeg
     --enable-encoder=aac \
     --enable-swresample \
+    --enable-protocol=file \
     --enable-encoder=aac \
     --enable-swresample \
+    --enable-protocol=file \
     --enable-swresample \
+    --enable-protocol=file \
     --enable-encoder=png
     --enable-demuxer=mov
     --enable-demuxer=matroska
@@ -65,6 +68,7 @@ COMMON_FLAGS=(
     --enable-avcodec
     --enable-avutil
     --enable-swresample
+    --enable-protocol=file \
     --disable-libsoxr
     --extra-cflags="-O2"
     --extra-ldflags="-static"

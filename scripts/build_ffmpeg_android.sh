@@ -54,9 +54,12 @@ COMMON_FLAGS=(
     --enable-encoder=mjpeg
     --enable-encoder=aac \
     --enable-swresample \
+    --enable-protocol=file \
     --enable-encoder=aac \
     --enable-swresample \
+    --enable-protocol=file \
     --enable-swresample \
+    --enable-protocol=file \
     --enable-encoder=png
 )
 
