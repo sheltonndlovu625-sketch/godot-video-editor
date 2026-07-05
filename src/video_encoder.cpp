@@ -1,38 +1,23 @@
-#include <godot_cpp/classes/project_settings.hpp>
-
-static String resolve_path(String p_path) {
-    if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
-        ProjectSettings *ps = ProjectSettings::get_singleton();
-        if (ps) return ps->globalize_path(p_path);
-    }
-    return p_path;
-}
-
-static void log_av_error(const char *prefix, int errnum) {
-    char errbuf[256];
-    av_strerror(errnum, errbuf, sizeof(errbuf));
-    godot::UtilityFunctions::push_error(godot::String("[VideoEncoder] ") + prefix + ": " + errbuf);
-}
-
-#include <godot_cpp/classes/project_settings.hpp>
-
-static String resolve_path(String p_path) {
-    if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
-        ProjectSettings *ps = ProjectSettings::get_singleton();
-        if (ps) return ps->globalize_path(p_path);
-    }
-    return p_path;
-}
-
-static void log_av_error(const char *prefix, int errnum) {
-    char errbuf[256];
-    av_strerror(errnum, errbuf, sizeof(errbuf));
-    godot::UtilityFunctions::push_error(godot::String("[VideoEncoder] ") + prefix + ": " + errbuf);
-}
-
 #include "video_encoder.h"
+#include <godot_cpp/classes/project_settings.hpp>
 
 using namespace godot;
+
+static String resolve_path(String p_path) {
+    if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
+        ProjectSettings *ps = ProjectSettings::get_singleton();
+        if (ps) {
+            return ps->globalize_path(p_path);
+        }
+    }
+    return p_path;
+}
+
+static void log_av_error(const char *prefix, int errnum) {
+    char errbuf[256];
+    av_strerror(errnum, errbuf, sizeof(errbuf));
+    UtilityFunctions::push_error(String("[VideoEncoder] ") + prefix + ": " + errbuf);
+}
 
 void VideoEncoder::_bind_methods() {
     ClassDB::bind_method(
@@ -85,14 +70,16 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
         audio_bitrate = p_audio_bitrate;
     }
 
-    avformat_alloc_output_context2(&format_ctx, nullptr, nullptr, p_path.utf8().get_data());
+    String resolved_path = resolve_path(p_path);
+    const char *path_utf8 = resolved_path.utf8().get_data();
+
+    avformat_alloc_output_context2(&format_ctx, nullptr, nullptr, path_utf8);
     if (!format_ctx) {
-        char errbuf[256];
-        av_strerror(AVERROR(EINVAL), errbuf, sizeof(errbuf));
-        UtilityFunctions::push_error("[VideoEncoder] avformat_alloc_output_context2 failed: ", String(errbuf));
+        avformat_alloc_output_context2(&format_ctx, nullptr, "mp4", path_utf8);
     }
     if (!format_ctx) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not allocate output context");
+        log_av_error("avformat_alloc_output_context2 failed", AVERROR(EINVAL));
+        UtilityFunctions::push_error("[VideoEncoder] Could not allocate output context. Ensure linker uses --whole-archive for FFmpeg static libs.");
         return false;
     }
 
@@ -122,7 +109,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
     video_codec_ctx->bit_rate = p_video_bitrate;
     video_codec_ctx->gop_size = 12;
-    video_codec_ctx->max_b_frames = 2;
+    video_codec_ctx->max_b_frames = 0;
 
     if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
         video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
@@ -130,13 +117,13 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
 
     int ret = avcodec_open2(video_codec_ctx, video_codec, nullptr);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not open video codec");
+        log_av_error("Could not open video codec", ret);
         return false;
     }
 
     ret = avcodec_parameters_from_context(video_stream->codecpar, video_codec_ctx);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not copy video codec params");
+        log_av_error("Could not copy video codec params", ret);
         return false;
     }
     video_stream->time_base = video_codec_ctx->time_base;
@@ -173,13 +160,13 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
 
         ret = avcodec_open2(audio_codec_ctx, audio_codec, nullptr);
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Could not open audio codec");
+            log_av_error("Could not open audio codec", ret);
             return false;
         }
 
         ret = avcodec_parameters_from_context(audio_stream->codecpar, audio_codec_ctx);
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Could not copy audio codec params");
+            log_av_error("Could not copy audio codec params", ret);
             return false;
         }
         audio_stream->time_base = audio_codec_ctx->time_base;
@@ -187,13 +174,13 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
 
     ret = avio_open(&format_ctx->pb, path_utf8, AVIO_FLAG_WRITE);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not open output file");
+        log_av_error("Could not open output file", ret);
         return false;
     }
 
     ret = avformat_write_header(format_ctx, nullptr);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Error writing header");
+        log_av_error("Error writing header", ret);
         return false;
     }
 
@@ -203,7 +190,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     video_frame->height = height;
     ret = av_frame_get_buffer(video_frame, 0);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not allocate video frame buffer");
+        log_av_error("Could not allocate video frame buffer", ret);
         return false;
     }
 
@@ -230,7 +217,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
         }
         ret = av_frame_get_buffer(audio_frame, 0);
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Could not allocate audio frame buffer");
+            log_av_error("Could not allocate audio frame buffer", ret);
             return false;
         }
 
@@ -247,16 +234,15 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
             &audio_codec_ctx->ch_layout, AV_SAMPLE_FMT_FLTP, sample_rate,
             &src_ch_layout, AV_SAMPLE_FMT_FLT, sample_rate,
             0, nullptr);
-        av_channel_layout_uninit(&src_ch_layout);
 
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Could not set resampler options");
+            log_av_error("Could not set resampler options", ret);
             return false;
         }
 
         ret = swr_init(swr_ctx);
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Could not initialize resampler");
+            log_av_error("Could not initialize resampler", ret);
             return false;
         }
 
@@ -293,7 +279,7 @@ bool VideoEncoder::write_frame(Ref<Image> p_image) {
 
     int ret = avcodec_send_frame(video_codec_ctx, video_frame);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoEncoder] Error sending video frame");
+        log_av_error("Error sending video frame", ret);
         return false;
     }
 
@@ -303,7 +289,7 @@ bool VideoEncoder::write_frame(Ref<Image> p_image) {
             break;
         }
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Error encoding video frame");
+            log_av_error("Error encoding video frame", ret);
             return false;
         }
 
@@ -313,7 +299,7 @@ bool VideoEncoder::write_frame(Ref<Image> p_image) {
         ret = av_interleaved_write_frame(format_ctx, packet);
         av_packet_unref(packet);
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Error writing video packet");
+            log_av_error("Error writing video packet", ret);
             return false;
         }
     }
@@ -345,7 +331,7 @@ bool VideoEncoder::write_audio(PackedFloat32Array p_samples) {
     if (converted < 0) {
         av_freep(&dst_data[0]);
         av_freep(&dst_data);
-        UtilityFunctions::push_error("[VideoEncoder] Audio resampling failed");
+        log_av_error("Audio resampling failed", converted);
         return false;
     }
 
@@ -362,7 +348,7 @@ bool VideoEncoder::write_audio(PackedFloat32Array p_samples) {
 
         int ret = avcodec_send_frame(audio_codec_ctx, audio_frame);
         if (ret < 0) {
-            UtilityFunctions::push_error("[VideoEncoder] Error sending audio frame");
+            log_av_error("Error sending audio frame", ret);
             return false;
         }
 
@@ -372,7 +358,7 @@ bool VideoEncoder::write_audio(PackedFloat32Array p_samples) {
                 break;
             }
             if (ret < 0) {
-                UtilityFunctions::push_error("[VideoEncoder] Error encoding audio");
+                log_av_error("Error encoding audio", ret);
                 return false;
             }
 
@@ -382,7 +368,7 @@ bool VideoEncoder::write_audio(PackedFloat32Array p_samples) {
             ret = av_interleaved_write_frame(format_ctx, packet);
             av_packet_unref(packet);
             if (ret < 0) {
-                UtilityFunctions::push_error("[VideoEncoder] Error writing audio packet");
+                log_av_error("Error writing audio packet", ret);
                 return false;
             }
         }
@@ -429,7 +415,7 @@ void VideoEncoder::close() {
             av_packet_rescale_ts(packet, audio_codec_ctx->time_base, audio_stream->time_base);
             packet->stream_index = audio_stream->index;
             av_interleaved_write_frame(format_ctx, packet);
-                av_packet_unref(packet);
+            av_packet_unref(packet);
         }
     }
 
