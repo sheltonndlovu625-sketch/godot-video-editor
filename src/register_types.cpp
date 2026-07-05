@@ -1,5 +1,6 @@
 #include "register_types.h"
 #include "video_encoder.h"
+#include "video_decoder.h"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
@@ -9,6 +10,7 @@ using namespace godot;
 void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
     if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
         ClassDB::register_class<VideoEncoder>();
+        ClassDB::register_class<VideoDecoder>();
     }
 }
 

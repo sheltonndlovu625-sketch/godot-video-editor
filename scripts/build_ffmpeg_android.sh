@@ -51,6 +51,7 @@ COMMON_FLAGS=(
     --enable-decoder=vp9
     --enable-decoder=av1
     --enable-decoder=mp3
+    --enable-decoder=aac \
     --enable-encoder=mjpeg
     --enable-encoder=aac \
     --enable-swresample \
