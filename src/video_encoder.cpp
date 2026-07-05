@@ -392,7 +392,7 @@ void VideoEncoder::close() {
             av_packet_rescale_ts(packet, audio_codec_ctx->time_base, audio_stream->time_base);
             packet->stream_index = audio_stream->index;
             av_interleaved_write_frame(format_ctx, packet);
-            av_packet_unref(packet);
+                av_packet_unref(packet);
         }
     }
 
@@ -425,7 +425,7 @@ void VideoEncoder::close() {
     avcodec_free_context(&video_codec_ctx);
     sws_freeContext(sws_ctx);
     sws_ctx = nullptr;
-    avformat_free_context(&format_ctx);
+    avformat_free_context(format_ctx);
     format_ctx = nullptr;
 
     initialized = false;
