@@ -1,9 +1,14 @@
+#include "video_decoder.h"
 #include <godot_cpp/classes/project_settings.hpp>
+
+using namespace godot;
 
 static String resolve_path(String p_path) {
     if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
         ProjectSettings *ps = ProjectSettings::get_singleton();
-        if (ps) return ps->globalize_path(p_path);
+        if (ps) {
+            return ps->globalize_path(p_path);
+        }
     }
     return p_path;
 }
@@ -11,12 +16,8 @@ static String resolve_path(String p_path) {
 static void log_av_error(const char *prefix, int errnum) {
     char errbuf[256];
     av_strerror(errnum, errbuf, sizeof(errbuf));
-    godot::UtilityFunctions::push_error(godot::String("[VideoDecoder] ") + prefix + ": " + errbuf);
+    UtilityFunctions::push_error(String("[VideoDecoder] ") + prefix + ": " + errbuf);
 }
-
-#include "video_decoder.h"
-
-using namespace godot;
 
 void VideoDecoder::_bind_methods() {
     ClassDB::bind_method(D_METHOD("open", "path"), &VideoDecoder::open);
@@ -53,7 +54,7 @@ bool VideoDecoder::open(String p_path) {
 
     ret = avformat_find_stream_info(format_ctx, nullptr);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoDecoder] Could not find stream info");
+        log_av_error("Could not find stream info", ret);
         avformat_close_input(&format_ctx);
         return false;
     }
@@ -94,14 +95,14 @@ bool VideoDecoder::open(String p_path) {
 
     ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoDecoder] Could not copy video codec params");
+        log_av_error("Could not copy video codec params", ret);
         close();
         return false;
     }
 
     ret = avcodec_open2(video_codec_ctx, vcodec, nullptr);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoDecoder] Could not open video codec");
+        log_av_error("Could not open video codec", ret);
         close();
         return false;
     }
@@ -113,7 +114,7 @@ bool VideoDecoder::open(String p_path) {
     rgba_frame->height = video_codec_ctx->height;
     ret = av_frame_get_buffer(rgba_frame, 0);
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoDecoder] Could not allocate RGBA frame");
+        log_av_error("Could not allocate RGBA frame", ret);
         close();
         return false;
     }
@@ -143,13 +144,13 @@ bool VideoDecoder::open(String p_path) {
             } else {
                 ret = avcodec_parameters_to_context(audio_codec_ctx, astream->codecpar);
                 if (ret < 0) {
-                    UtilityFunctions::push_warning("[VideoDecoder] Could not copy audio codec params");
+                    log_av_error("Could not copy audio codec params", ret);
                     avcodec_free_context(&audio_codec_ctx);
                     audio_stream_index = -1;
                 } else {
                     ret = avcodec_open2(audio_codec_ctx, acodec, nullptr);
                     if (ret < 0) {
-                        UtilityFunctions::push_warning("[VideoDecoder] Could not open audio codec");
+                        log_av_error("Could not open audio codec", ret);
                         avcodec_free_context(&audio_codec_ctx);
                         audio_stream_index = -1;
                     } else {
@@ -171,7 +172,7 @@ bool VideoDecoder::open(String p_path) {
                                 0, nullptr);
 
                             if (ret < 0 || swr_init(swr_ctx) < 0) {
-                                UtilityFunctions::push_warning("[VideoDecoder] Could not init resampler");
+                                log_av_error("Could not init resampler", ret < 0 ? ret : AVERROR_UNKNOWN);
                                 swr_free(&swr_ctx);
                                 avcodec_free_context(&audio_codec_ctx);
                                 audio_stream_index = -1;
@@ -208,7 +209,7 @@ Ref<Image> VideoDecoder::read_video_frame() {
             ret = avcodec_receive_frame(video_codec_ctx, video_frame);
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) continue;
             if (ret < 0) {
-                UtilityFunctions::push_error("[VideoDecoder] Error receiving video frame");
+                log_av_error("Error receiving video frame", ret);
                 break;
             }
 
@@ -388,7 +389,7 @@ bool VideoDecoder::seek(double p_time_seconds) {
     }
 
     if (ret < 0) {
-        UtilityFunctions::push_error("[VideoDecoder] Seek failed");
+        log_av_error("Seek failed", ret);
         return false;
     }
 
