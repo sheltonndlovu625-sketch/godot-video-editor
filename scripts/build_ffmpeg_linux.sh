@@ -22,6 +22,7 @@ COMMON_FLAGS=(
     --disable-doc
     --disable-shared
     --enable-static
+    --enable-pic
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -72,6 +73,10 @@ BUILD_DIR="$WORKSPACE/build-ffmpeg-linux"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
+
+export CFLAGS="-O3 -fPIC"
+export CXXFLAGS="-O3 -fPIC"
+export LDFLAGS="-O3 -fPIC"
 
 "$SRC_DIR/configure" \
     --prefix="$INSTALL_PREFIX" \
