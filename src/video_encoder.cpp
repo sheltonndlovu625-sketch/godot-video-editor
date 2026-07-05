@@ -106,10 +106,9 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     video_codec_ctx->height = height;
     video_codec_ctx->time_base = (AVRational){1, fps};
     video_codec_ctx->framerate = (AVRational){fps, 1};
-    video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    video_codec_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
     video_codec_ctx->bit_rate = p_video_bitrate;
-    video_codec_ctx->gop_size = 12;
-    video_codec_ctx->max_b_frames = 0;
+    video_codec_ctx->gop_size = 1;
 
     if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
         video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
@@ -185,7 +184,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     }
 
     video_frame = av_frame_alloc();
-    video_frame->format = AV_PIX_FMT_YUV420P;
+    video_frame->format = AV_PIX_FMT_YUVJ420P;
     video_frame->width = width;
     video_frame->height = height;
     ret = av_frame_get_buffer(video_frame, 0);
@@ -198,7 +197,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
 
     sws_ctx = sws_getContext(
         width, height, AV_PIX_FMT_RGBA,
-        width, height, AV_PIX_FMT_YUV420P,
+        width, height, AV_PIX_FMT_YUVJ420P,
         SWS_BILINEAR, nullptr, nullptr, nullptr
     );
     if (!sws_ctx) {
