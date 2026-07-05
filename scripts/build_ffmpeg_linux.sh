@@ -31,6 +31,9 @@ COMMON_FLAGS=(
     --disable-iconv
     --disable-zlib
     --disable-everything
+    --disable-asm
+    --disable-x86asm
+    --disable-inline-asm
 
     --enable-avformat
     --enable-avcodec
@@ -82,6 +85,7 @@ export LDFLAGS="-O3 -fPIC"
     --prefix="$INSTALL_PREFIX" \
     --extra-cflags="-O3 -fPIC" \
     --extra-ldflags="-O3 -fPIC" \
+    --optflags="-O3 -fPIC" \
     "${COMMON_FLAGS[@]}" || {
         echo "=== CONFIGURE FAILED for Linux ==="
         tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
