@@ -149,7 +149,6 @@ bool VideoDecoder::open(String p_path) {
                                 &dst_ch_layout, AV_SAMPLE_FMT_FLT, sample_rate,
                                 &audio_codec_ctx->ch_layout, audio_codec_ctx->sample_fmt, sample_rate,
                                 0, nullptr);
-                            av_channel_layout_uninit(&dst_ch_layout);
 
                             if (ret < 0 || swr_init(swr_ctx) < 0) {
                                 UtilityFunctions::push_warning("[VideoDecoder] Could not init resampler");
