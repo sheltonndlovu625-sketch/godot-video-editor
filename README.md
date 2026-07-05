@@ -120,3 +120,4 @@ The GDExtension wraps FFmpeg's `libavcodec`/`libavformat` to encode raw RGBA fra
 ## License
 
 MIT License - Starter project scaffold.
+# CI rebuild trigger Sun Jul  5 17:18:22 SAST 2026
