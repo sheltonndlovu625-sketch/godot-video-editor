@@ -36,8 +36,7 @@ jobs:
           name: linux-libraries
           path: godot_project/addons/video_encoder/bin/linux/
 
-  # build-windows:  # DISABLED - MinGW toolchain issues, mobile priority
-  #   if: false
+  build-windows:
     runs-on: windows-latest
     defaults:
       run:
@@ -52,7 +51,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git make diffutils binutils binutils
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-scons mingw-w64-x86_64-pkgconf git make diffutils binutils
       - name: Verify MinGW
         run: |
           which gcc
