@@ -44,32 +44,40 @@ COMMON_FLAGS=(
     --disable-iconv
     --disable-zlib
     --disable-everything
+
+    --enable-avformat
+    --enable-avcodec
+    --enable-avutil
+    --enable-swscale
+    --enable-swresample
+
     --enable-decoder=h264
     --enable-decoder=hevc
     --enable-decoder=mpeg4
     --enable-decoder=vp8
     --enable-decoder=vp9
+    --enable-decoder=mjpeg
+    --enable-decoder=png
     --enable-decoder=mp3
-    --enable-decoder=aac \
+    --enable-decoder=aac
+
     --enable-encoder=mjpeg
-    --enable-encoder=aac \
-    --enable-swresample \
-    --enable-protocol=file \
-    --enable-demuxer=mp4,mov \
-    --enable-parser=mjpeg,aac,h264,hevc \
-    --enable-muxer=mp4,mov \
-    --enable-encoder=aac \
-    --enable-swresample \
-    --enable-protocol=file \
-    --enable-demuxer=mp4,mov \
-    --enable-parser=mjpeg,aac,h264,hevc \
-    --enable-muxer=mp4,mov \
-    --enable-swresample \
-    --enable-protocol=file \
-    --enable-demuxer=mp4,mov \
-    --enable-parser=mjpeg,aac,h264,hevc \
-    --enable-muxer=mp4,mov \
+    --enable-encoder=aac
     --enable-encoder=png
+
+    --enable-muxer=mp4
+    --enable-muxer=mov
+    --enable-muxer=image2
+    --enable-demuxer=mp4
+    --enable-demuxer=mov
+    --enable-demuxer=image2
+
+    --enable-protocol=file
+
+    --enable-parser=mjpeg
+    --enable-parser=aac
+    --enable-parser=h264
+    --enable-parser=hevc
 )
 
 build_arch() {
@@ -102,7 +110,6 @@ build_arch() {
         --extra-ldflags="-O3" \
         "${COMMON_FLAGS[@]}" || {
             echo "=== CONFIGURE FAILED for $ARCH ==="
-            echo "=== config.log tail (last 100 lines) ==="
             tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
             exit 1
         }
