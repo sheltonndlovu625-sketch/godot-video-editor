@@ -1,4 +1,3 @@
-
 #include "timeline.h"
 
 using namespace godot;
@@ -62,7 +61,7 @@ Ref<TimelineTrack> Timeline::get_track(int p_index) const {
 TypedArray<TimelineTrack> Timeline::get_video_tracks() const {
     TypedArray<TimelineTrack> result;
     for (int i = 0; i < tracks.size(); i++) {
-        if (tracks[i]->get_track_type() == TRACK_TYPE_VIDEO) {
+        if (tracks[i]->get_track_type() == TimelineTrack::TRACK_TYPE_VIDEO) {
             result.push_back(tracks[i]);
         }
     }
@@ -72,7 +71,7 @@ TypedArray<TimelineTrack> Timeline::get_video_tracks() const {
 TypedArray<TimelineTrack> Timeline::get_audio_tracks() const {
     TypedArray<TimelineTrack> result;
     for (int i = 0; i < tracks.size(); i++) {
-        if (tracks[i]->get_track_type() == TRACK_TYPE_AUDIO) {
+        if (tracks[i]->get_track_type() == TimelineTrack::TRACK_TYPE_AUDIO) {
             result.push_back(tracks[i]);
         }
     }
