@@ -2,6 +2,13 @@
 
 using namespace godot;
 
+// Static comparator for Vector::sort_custom
+struct ClipComparator {
+    _FORCE_INLINE_ bool operator()(const Ref<TimelineClip> &a, const Ref<TimelineClip> &b) const {
+        return a->get_timeline_start() < b->get_timeline_start();
+    }
+};
+
 void TimelineTrack::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_track_type", "type"), &TimelineTrack::set_track_type);
     ClassDB::bind_method(D_METHOD("get_track_type"), &TimelineTrack::get_track_type);
@@ -48,9 +55,7 @@ void TimelineTrack::add_clip(const Ref<TimelineClip> &p_clip) {
     if (p_clip.is_null()) return;
     clips.push_back(p_clip);
     // Keep clips sorted by timeline_start
-    clips.sort_custom<Ref<TimelineClip>>([](const Ref<TimelineClip> &a, const Ref<TimelineClip> &b) {
-        return a->get_timeline_start() < b->get_timeline_start();
-    });
+    clips.sort_custom<ClipComparator>();
 }
 
 void TimelineTrack::remove_clip(int p_index) {
@@ -102,4 +107,3 @@ double TimelineTrack::get_track_duration() const {
     }
     return max_end;
 }
-
