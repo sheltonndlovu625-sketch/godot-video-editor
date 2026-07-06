@@ -1,6 +1,6 @@
 #include "timeline_renderer.h"
 #include <godot_cpp/classes/image.hpp>
-#include <godot_cpp/variant/utilityFunctions.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 
@@ -54,15 +54,22 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     TypedArray<Image> frames;
     TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
 
-    // Sort video tracks by layer index (bottom first)
-    video_tracks.sort_custom([](const Variant &a, const Variant &b) {
-        Ref<TimelineTrack> ta = a;
-        Ref<TimelineTrack> tb = b;
-        return ta->get_layer_index() < tb->get_layer_index();
-    });
-
+    // Collect tracks into a Vector for sorting
+    Vector<Ref<TimelineTrack>> sorted_tracks;
     for (int i = 0; i < video_tracks.size(); i++) {
-        Ref<TimelineTrack> track = video_tracks[i];
+        sorted_tracks.push_back(video_tracks[i]);
+    }
+
+    // Sort by layer index (bottom first)
+    struct TrackComparator {
+        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+            return a->get_layer_index() < b->get_layer_index();
+        }
+    };
+    sorted_tracks.sort_custom<TrackComparator>();
+
+    for (int i = 0; i < sorted_tracks.size(); i++) {
+        Ref<TimelineTrack> track = sorted_tracks[i];
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
         if (clip.is_null()) continue;
 
