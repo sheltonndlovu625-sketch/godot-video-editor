@@ -48,7 +48,6 @@ COMMON_FLAGS=(
     --enable-decoder=vp9
     --enable-decoder=mjpeg
     --enable-decoder=png
-
     --enable-decoder=mp3
     --enable-decoder=aac
 
