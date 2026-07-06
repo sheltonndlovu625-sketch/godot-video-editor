@@ -71,11 +71,12 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     }
 
     String resolved_path = resolve_path(p_path);
-    const char *path_utf8 = resolved_path.utf8().get_data();
+    CharString path_utf8 = resolved_path.utf8();
+    const char *path_cstr = path_utf8.get_data();
 
-    avformat_alloc_output_context2(&format_ctx, nullptr, nullptr, path_utf8);
+    avformat_alloc_output_context2(&format_ctx, nullptr, nullptr, path_cstr);
     if (!format_ctx) {
-        avformat_alloc_output_context2(&format_ctx, nullptr, "mp4", path_utf8);
+        avformat_alloc_output_context2(&format_ctx, nullptr, "mp4", path_cstr);
     }
     if (!format_ctx) {
         log_av_error("avformat_alloc_output_context2 failed", AVERROR(EINVAL));
@@ -169,7 +170,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
         audio_stream->time_base = audio_codec_ctx->time_base;
     }
 
-    ret = avio_open(&format_ctx->pb, path_utf8, AVIO_FLAG_WRITE);
+    ret = avio_open(&format_ctx->pb, path_cstr, AVIO_FLAG_WRITE);
     if (ret < 0) {
         log_av_error("Could not open output file", ret);
         return false;
