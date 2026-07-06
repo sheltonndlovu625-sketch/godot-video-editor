@@ -39,6 +39,7 @@ private:
 
     PackedFloat32Array audio_buffer;
     double duration = 0.0;
+    double current_time = 0.0;
     int sample_rate = 0;
     int channels = 0;
     bool initialized = false;
@@ -52,6 +53,7 @@ public:
     PackedFloat32Array read_audio_samples(int p_max_samples);
     bool seek(double p_time_seconds);
     double get_duration() const;
+    double get_current_time() const;
     int get_video_width() const;
     int get_video_height() const;
     double get_video_fps() const;
