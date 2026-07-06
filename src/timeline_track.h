@@ -7,17 +7,18 @@
 
 namespace godot {
 
-enum TimelineTrackType {
-    TRACK_TYPE_VIDEO = 0,
-    TRACK_TYPE_AUDIO = 1
-};
-
 class TimelineTrack : public RefCounted {
     GDCLASS(TimelineTrack, RefCounted)
 
+public:
+    enum TrackType {
+        TRACK_TYPE_VIDEO = 0,
+        TRACK_TYPE_AUDIO = 1
+    };
+
 private:
-    TimelineTrackType track_type = TRACK_TYPE_VIDEO;
-    int layer_index = 0;  // Higher = on top (for video compositing)
+    TrackType track_type = TRACK_TYPE_VIDEO;
+    int layer_index = 0;
     Vector<Ref<TimelineClip>> clips;
 
 protected:
@@ -36,13 +37,11 @@ public:
     int get_clip_count() const;
     Ref<TimelineClip> get_clip(int p_index) const;
 
-    // Find clip active at given timeline time
     Ref<TimelineClip> get_clip_at_time(double p_time) const;
 
-    // Get all clips sorted by timeline_start
     TypedArray<TimelineClip> get_clips() const;
 
-    double get_track_duration() const; // End time of last clip
+    double get_track_duration() const;
 
     TimelineTrack();
     ~TimelineTrack();
@@ -50,5 +49,6 @@ public:
 
 }
 
-#endif
+VARIANT_ENUM_CAST(godot::TimelineTrack::TrackType);
 
+#endif
