@@ -35,55 +35,49 @@ COMMON_FLAGS=(
     --disable-iconv
     --disable-zlib
     --disable-everything
+
+    --enable-avformat
+    --enable-avcodec
+    --enable-avutil
+    --enable-swscale
+    --enable-swresample
+
     --enable-decoder=h264
     --enable-decoder=hevc
     --enable-decoder=mpeg4
     --enable-decoder=vp8
     --enable-decoder=vp9
+    --enable-decoder=mjpeg
+    --enable-decoder=png
     --enable-decoder=mp3
-    --enable-decoder=aac \
+    --enable-decoder=aac
+
     --enable-encoder=mjpeg
-    --enable-encoder=aac \
-    --enable-swresample \
-    --enable-protocol=file \
-    --enable-demuxer=mp4,mov \
-    --enable-parser=mjpeg,aac,h264,hevc \
-    --enable-muxer=mp4,mov \
-    --enable-encoder=aac \
-    --enable-swresample \
-    --enable-protocol=file \
-    --enable-demuxer=mp4,mov \
-    --enable-parser=mjpeg,aac,h264,hevc \
-    --enable-muxer=mp4,mov \
-    --enable-swresample \
-    --enable-protocol=file \
-    --enable-demuxer=mp4,mov \
-    --enable-parser=mjpeg,aac,h264,hevc \
-    --enable-muxer=mp4,mov \
+    --enable-encoder=aac
     --enable-encoder=png
-    --enable-demuxer=mov
-    --enable-demuxer=matroska
-    --enable-demuxer=avi
+
+    --enable-muxer=mp4
     --enable-muxer=mov
+    --enable-muxer=image2
     --enable-muxer=matroska
     --enable-muxer=avi
-    --enable-muxer=image2
+    --enable-demuxer=mp4
+    --enable-demuxer=mov
+    --enable-demuxer=image2
+    --enable-demuxer=matroska
+    --enable-demuxer=avi
+
     --enable-protocol=file
-    --enable-demuxer=mp4,mov \
-    --enable-parser=mjpeg,aac,h264,hevc \
-    --enable-muxer=mp4,mov \
+
+    --enable-parser=mjpeg
+    --enable-parser=aac
+    --enable-parser=h264
+    --enable-parser=hevc
+
     --enable-filter=scale
     --enable-filter=format
     --enable-filter=fps
-    --enable-swscale
-    --enable-avformat
-    --enable-avcodec
-    --enable-avutil
-    --enable-swresample
-    --enable-protocol=file \
-    --enable-demuxer=mp4,mov \
-    --enable-parser=mjpeg,aac,h264,hevc \
-    --enable-muxer=mp4,mov \
+
     --disable-libsoxr
     --extra-cflags="-O2"
     --extra-ldflags="-static"
