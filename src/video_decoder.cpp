@@ -44,9 +44,10 @@ VideoDecoder::~VideoDecoder() {
 
 bool VideoDecoder::open(String p_path) {
     String resolved_path = resolve_path(p_path);
-    const char *path_utf8 = resolved_path.utf8().get_data();
+    CharString path_utf8 = resolved_path.utf8();
+    const char *path_cstr = path_utf8.get_data();
 
-    int ret = avformat_open_input(&format_ctx, path_utf8, nullptr, nullptr);
+    int ret = avformat_open_input(&format_ctx, path_cstr, nullptr, nullptr);
     if (ret < 0) {
         log_av_error("avformat_open_input failed", ret);
         UtilityFunctions::push_error("[VideoDecoder] Could not open input file: ", resolved_path);
