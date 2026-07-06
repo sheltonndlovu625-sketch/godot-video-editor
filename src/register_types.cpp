@@ -1,6 +1,10 @@
 #include "register_types.h"
 #include "video_encoder.h"
 #include "video_decoder.h"
+#include "timeline_clip.h"
+#include "timeline_track.h"
+#include "timeline.h"
+#include "timeline_renderer.h"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
@@ -16,6 +20,10 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         avformat_network_init();
         ClassDB::register_class<VideoEncoder>();
         ClassDB::register_class<VideoDecoder>();
+        ClassDB::register_class<TimelineClip>();
+        ClassDB::register_class<TimelineTrack>();
+        ClassDB::register_class<Timeline>();
+        ClassDB::register_class<TimelineRenderer>();
     }
 }
 
