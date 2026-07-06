@@ -25,6 +25,7 @@ void VideoDecoder::_bind_methods() {
     ClassDB::bind_method(D_METHOD("read_audio_samples", "max_samples"), &VideoDecoder::read_audio_samples);
     ClassDB::bind_method(D_METHOD("seek", "time_seconds"), &VideoDecoder::seek);
     ClassDB::bind_method(D_METHOD("get_duration"), &VideoDecoder::get_duration);
+    ClassDB::bind_method(D_METHOD("get_current_time"), &VideoDecoder::get_current_time);
     ClassDB::bind_method(D_METHOD("get_video_width"), &VideoDecoder::get_video_width);
     ClassDB::bind_method(D_METHOD("get_video_height"), &VideoDecoder::get_video_height);
     ClassDB::bind_method(D_METHOD("get_video_fps"), &VideoDecoder::get_video_fps);
@@ -188,6 +189,7 @@ bool VideoDecoder::open(String p_path) {
     }
 
     initialized = true;
+    current_time = 0.0;
     UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", video_codec_ctx->width, "x", video_codec_ctx->height, ")");
     return true;
 }
@@ -211,6 +213,11 @@ Ref<Image> VideoDecoder::read_video_frame() {
             if (ret < 0) {
                 log_av_error("Error receiving video frame", ret);
                 break;
+            }
+
+            if (video_frame->pts != AV_NOPTS_VALUE) {
+                AVStream *stream = format_ctx->streams[video_stream_index];
+                current_time = video_frame->pts * av_q2d(stream->time_base);
             }
 
             sws_scale(sws_ctx, video_frame->data, video_frame->linesize, 0,
@@ -266,6 +273,11 @@ Ref<Image> VideoDecoder::read_video_frame() {
         avcodec_send_packet(video_codec_ctx, nullptr);
         int ret = avcodec_receive_frame(video_codec_ctx, video_frame);
         if (ret >= 0) {
+            if (video_frame->pts != AV_NOPTS_VALUE) {
+                AVStream *stream = format_ctx->streams[video_stream_index];
+                current_time = video_frame->pts * av_q2d(stream->time_base);
+            }
+
             sws_scale(sws_ctx, video_frame->data, video_frame->linesize, 0,
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
 
@@ -349,7 +361,10 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
             av_packet_unref(pkt);
             if (ret >= 0) {
                 while (avcodec_receive_frame(video_codec_ctx, video_frame) >= 0) {
-                    // Drop video frame while reading audio
+                    if (video_frame->pts != AV_NOPTS_VALUE) {
+                        AVStream *stream = format_ctx->streams[video_stream_index];
+                        current_time = video_frame->pts * av_q2d(stream->time_base);
+                    }
                 }
             }
         } else {
@@ -400,12 +415,17 @@ bool VideoDecoder::seek(double p_time_seconds) {
         avcodec_flush_buffers(audio_codec_ctx);
     }
     audio_buffer.resize(0);
+    current_time = p_time_seconds;
 
     return true;
 }
 
 double VideoDecoder::get_duration() const {
     return duration;
+}
+
+double VideoDecoder::get_current_time() const {
+    return current_time;
 }
 
 int VideoDecoder::get_video_width() const {
@@ -467,6 +487,7 @@ void VideoDecoder::close() {
     video_stream_index = -1;
     audio_stream_index = -1;
     duration = 0.0;
+    current_time = 0.0;
     sample_rate = 0;
     channels = 0;
 
