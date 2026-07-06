@@ -36,7 +36,7 @@ TimelineTrack::TimelineTrack() {}
 TimelineTrack::~TimelineTrack() {}
 
 void TimelineTrack::set_track_type(int p_type) {
-    track_type = (TimelineTrackType)p_type;
+    track_type = (TrackType)p_type;
 }
 
 int TimelineTrack::get_track_type() const {
@@ -54,7 +54,6 @@ int TimelineTrack::get_layer_index() const {
 void TimelineTrack::add_clip(const Ref<TimelineClip> &p_clip) {
     if (p_clip.is_null()) return;
     clips.push_back(p_clip);
-    // Keep clips sorted by timeline_start
     clips.sort_custom<ClipComparator>();
 }
 
