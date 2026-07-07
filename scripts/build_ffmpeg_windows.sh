@@ -26,9 +26,6 @@ COMMON_FLAGS=(
     --disable-shared
     --disable-programs
     --disable-doc
-    --disable-asm
-    --disable-x86asm
-    --disable-inline-asm
     --disable-stripping
     --disable-bzlib
     --disable-libopenjpeg
@@ -79,7 +76,7 @@ COMMON_FLAGS=(
     --enable-filter=fps
 
     --disable-libsoxr
-    --extra-cflags="-O2"
+    --extra-cflags="-O3 -march=x86-64-v2"
     --extra-ldflags="-static"
     --extra-libs="-lpthread -lm"
 )
