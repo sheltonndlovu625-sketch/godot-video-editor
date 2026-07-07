@@ -47,10 +47,21 @@ Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
     return decoder;
 }
 
+bool TimelineRenderer::_needs_seek(double p_time) {
+    if (last_render_time < 0.0) {
+        return true; // First render ever
+    }
+    double frame_duration = 1.0 / timeline->get_frame_rate();
+    // If time jumped more than 2 frames, we scrubbed — seek
+    return Math::abs(p_time - last_render_time) > frame_duration * 2.5;
+}
+
 Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
     if (timeline.is_null()) {
         return Ref<Image>();
     }
+
+    bool seek = _needs_seek(p_time);
 
     TypedArray<Image> frames;
     TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
@@ -67,8 +78,6 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     };
     sorted_tracks.sort_custom<TrackComparator>();
 
-    double frame_duration = 1.0 / timeline->get_frame_rate();
-
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
@@ -80,12 +89,7 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
         if (decoder.is_null()) continue;
 
-        // Only seek if we jumped significantly (scrubbing) or first use.
-        // During normal playback, read sequentially for performance & correctness.
-        double last_time = last_render_times.get(clip->get_source_path(), -1.0);
-        bool needs_seek = (last_time < 0.0) || (Math::abs(source_time - last_time) > frame_duration * 2.0);
-
-        if (needs_seek) {
+        if (seek) {
             if (!decoder->seek(source_time)) {
                 continue;
             }
@@ -94,14 +98,14 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         Ref<Image> frame = decoder->read_video_frame();
         if (frame.is_null()) continue;
 
-        last_render_times[clip->get_source_path()] = source_time;
-
         if (frame->get_width() != p_width || frame->get_height() != p_height) {
             frame->resize(p_width, p_height, Image::INTERPOLATE_BILINEAR);
         }
 
         frames.push_back(frame);
     }
+
+    last_render_time = p_time;
 
     if (frames.is_empty()) {
         Ref<Image> black = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
@@ -142,6 +146,8 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
         return result;
     }
 
+    bool seek = _needs_seek(p_time);
+
     TypedArray<TimelineTrack> audio_tracks = timeline->get_audio_tracks();
     TypedArray<PackedFloat32Array> buffers;
 
@@ -156,9 +162,10 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
         Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
         if (decoder.is_null() || !decoder->has_audio()) continue;
 
-        // Audio still needs seek because we read in chunks, not frame-by-frame
-        if (!decoder->seek(source_time)) {
-            continue;
+        if (seek) {
+            if (!decoder->seek(source_time)) {
+                continue;
+            }
         }
 
         PackedFloat32Array samples = decoder->read_audio_samples(p_num_samples);
@@ -285,5 +292,5 @@ void TimelineRenderer::clear_cache() {
         }
     }
     decoders.clear();
-    last_render_times.clear();
+    last_render_time = -1.0;
 }
