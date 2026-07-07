@@ -31,9 +31,6 @@ COMMON_FLAGS=(
     --disable-iconv
     --disable-zlib
     --disable-everything
-    --disable-asm
-    --disable-x86asm
-    --disable-inline-asm
 
     --enable-avformat
     --enable-avcodec
@@ -76,13 +73,13 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-export CFLAGS="-O3 -fPIC"
-export CXXFLAGS="-O3 -fPIC"
+export CFLAGS="-O3 -fPIC -march=x86-64-v2 -mtune=generic"
+export CXXFLAGS="-O3 -fPIC -march=x86-64-v2 -mtune=generic"
 export LDFLAGS="-O3 -fPIC"
 
 "$SRC_DIR/configure" \
     --prefix="$INSTALL_PREFIX" \
-    --extra-cflags="-O3 -fPIC" \
+    --extra-cflags="-O3 -fPIC -march=x86-64-v2" \
     --extra-ldflags="-O3 -fPIC" \
     --optflags="-O3 -fPIC" \
     "${COMMON_FLAGS[@]}" || {
