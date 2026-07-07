@@ -22,6 +22,7 @@ static void log_av_error(const char *prefix, int errnum) {
 void VideoDecoder::_bind_methods() {
     ClassDB::bind_method(D_METHOD("open", "path"), &VideoDecoder::open);
     ClassDB::bind_method(D_METHOD("read_video_frame"), &VideoDecoder::read_video_frame);
+    ClassDB::bind_method(D_METHOD("read_video_frame_scaled", "width", "height"), &VideoDecoder::read_video_frame_scaled);
     ClassDB::bind_method(D_METHOD("read_audio_samples", "max_samples"), &VideoDecoder::read_audio_samples);
     ClassDB::bind_method(D_METHOD("seek", "time_seconds"), &VideoDecoder::seek);
     ClassDB::bind_method(D_METHOD("get_duration"), &VideoDecoder::get_duration);
@@ -40,6 +41,44 @@ VideoDecoder::~VideoDecoder() {
     if (initialized) {
         close();
     }
+}
+
+bool VideoDecoder::try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx) {
+    // Try platform-specific hardware decoders
+    #if defined(__ANDROID__)
+        // Android MediaCodec
+        const AVCodec *hw_codec = avcodec_find_decoder_by_name("h264_mediacodec");
+        if (!hw_codec) {
+            hw_codec = avcodec_find_decoder_by_name("hevc_mediacodec");
+        }
+        if (hw_codec) {
+            *p_codec = hw_codec;
+            UtilityFunctions::print("[VideoDecoder] Using Android MediaCodec hardware decoder");
+            return true;
+        }
+    #elif defined(__APPLE__)
+        // macOS/iOS VideoToolbox
+        const AVCodec *hw_codec = avcodec_find_decoder_by_name("h264_videotoolbox");
+        if (!hw_codec) {
+            hw_codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
+        }
+        if (hw_codec) {
+            *p_codec = hw_codec;
+            UtilityFunctions::print("[VideoDecoder] Using VideoToolbox hardware decoder");
+            return true;
+        }
+    #elif defined(__linux__)
+        // Linux VAAPI (optional, requires GPU setup)
+        // hw_device_type = av_hwdevice_find_type_by_name("vaapi");
+        // if (hw_device_type != AV_HWDEVICE_TYPE_NONE) {
+        //     // Setup VAAPI context
+        // }
+    #elif defined(_WIN32)
+        // Windows DXVA/D3D11 (optional)
+        // hw_device_type = av_hwdevice_find_type_by_name("dxva2");
+    #endif
+
+    return false;
 }
 
 bool VideoDecoder::open(String p_path) {
@@ -88,6 +127,13 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
+    // Try hardware decoder first
+    const AVCodec *hw_codec = nullptr;
+    if (try_hwaccel(&hw_codec, nullptr)) {
+        vcodec = hw_codec;
+        use_hwaccel = true;
+    }
+
     video_codec_ctx = avcodec_alloc_context3(vcodec);
     if (!video_codec_ctx) {
         UtilityFunctions::push_error("[VideoDecoder] Could not allocate video codec context");
@@ -114,6 +160,7 @@ bool VideoDecoder::open(String p_path) {
     original_height = video_codec_ctx->height;
 
     video_frame = av_frame_alloc();
+    hw_frame = av_frame_alloc();
     rgba_frame = av_frame_alloc();
     rgba_frame->format = AV_PIX_FMT_RGBA;
     rgba_frame->width = original_width;
@@ -196,6 +243,9 @@ bool VideoDecoder::open(String p_path) {
     initialized = true;
     current_time = 0.0;
     UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", original_width, "x", original_height, ")");
+    if (use_hwaccel) {
+        UtilityFunctions::print("[VideoDecoder] Hardware acceleration enabled");
+    }
     return true;
 }
 
@@ -225,7 +275,19 @@ Ref<Image> VideoDecoder::read_video_frame() {
                 current_time = video_frame->pts * av_q2d(stream->time_base);
             }
 
-            sws_scale(sws_ctx, video_frame->data, video_frame->linesize, 0,
+            AVFrame *frame_to_convert = video_frame;
+
+            // If hardware decoded, transfer to CPU memory
+            if (use_hwaccel && video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+                ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
+                if (ret < 0) {
+                    log_av_error("Hardware frame transfer failed", ret);
+                    continue;
+                }
+                frame_to_convert = hw_frame;
+            }
+
+            sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
 
             int img_size = rgba_frame->linesize[0] * video_codec_ctx->height;
@@ -283,7 +345,15 @@ Ref<Image> VideoDecoder::read_video_frame() {
                 current_time = video_frame->pts * av_q2d(stream->time_base);
             }
 
-            sws_scale(sws_ctx, video_frame->data, video_frame->linesize, 0,
+            AVFrame *frame_to_convert = video_frame;
+            if (use_hwaccel && video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+                ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
+                if (ret >= 0) {
+                    frame_to_convert = hw_frame;
+                }
+            }
+
+            sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
 
             int img_size = rgba_frame->linesize[0] * video_codec_ctx->height;
@@ -302,18 +372,15 @@ Ref<Image> VideoDecoder::read_video_frame() {
     return result;
 }
 
-// NEW: Read frame at target resolution (FFmpeg scales during YUV->RGBA)
 Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
     if (!initialized || video_stream_index < 0) {
         return Ref<Image>();
     }
 
-    // If target matches original, use fast path
     if (p_width == original_width && p_height == original_height) {
         return read_video_frame();
     }
 
-    // Recreate scaler if target size changed
     if (p_width != scaled_width || p_height != scaled_height || !sws_ctx_scaled) {
         if (sws_ctx_scaled) {
             sws_freeContext(sws_ctx_scaled);
@@ -329,7 +396,7 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
         int ret = av_frame_get_buffer(scaled_rgba_frame, 0);
         if (ret < 0) {
             log_av_error("Could not allocate scaled RGBA frame", ret);
-            return read_video_frame(); // fallback
+            return read_video_frame();
         }
 
         sws_ctx_scaled = sws_getContext(
@@ -339,7 +406,7 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
         );
         if (!sws_ctx_scaled) {
             UtilityFunctions::push_error("[VideoDecoder] Could not create scaled scaler context");
-            return read_video_frame(); // fallback
+            return read_video_frame();
         }
 
         scaled_width = p_width;
@@ -364,7 +431,15 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
                 current_time = video_frame->pts * av_q2d(stream->time_base);
             }
 
-            sws_scale(sws_ctx_scaled, video_frame->data, video_frame->linesize, 0,
+            AVFrame *frame_to_convert = video_frame;
+            if (use_hwaccel && video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+                ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
+                if (ret >= 0) {
+                    frame_to_convert = hw_frame;
+                }
+            }
+
+            sws_scale(sws_ctx_scaled, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, scaled_rgba_frame->data, scaled_rgba_frame->linesize);
 
             int img_size = scaled_rgba_frame->linesize[0] * p_height;
@@ -375,7 +450,6 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
             result = Image::create_from_data(p_width, p_height, false, Image::FORMAT_RGBA8, bytes);
             break;
         } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx) {
-            // ... same audio handling as read_video_frame ...
             int ret = avcodec_send_packet(audio_codec_ctx, pkt);
             av_packet_unref(pkt);
             if (ret < 0) continue;
@@ -590,6 +664,7 @@ void VideoDecoder::close() {
     }
 
     av_frame_free(&video_frame);
+    av_frame_free(&hw_frame);
     av_frame_free(&rgba_frame);
     av_frame_free(&scaled_rgba_frame);
     av_frame_free(&audio_frame);
@@ -602,6 +677,8 @@ void VideoDecoder::close() {
     }
 
     initialized = false;
+    use_hwaccel = false;
+    hw_device_type = AV_HWDEVICE_TYPE_NONE;
     video_stream_index = -1;
     audio_stream_index = -1;
     duration = 0.0;
