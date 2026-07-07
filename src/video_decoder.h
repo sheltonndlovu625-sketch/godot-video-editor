@@ -14,6 +14,7 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
+#include <libavutil/hwcontext.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
@@ -29,6 +30,7 @@ private:
     AVCodecContext *video_codec_ctx = nullptr;
     int video_stream_index = -1;
     AVFrame *video_frame = nullptr;
+    AVFrame *hw_frame = nullptr;      // Hardware decoded frame
     AVFrame *rgba_frame = nullptr;
     SwsContext *sws_ctx = nullptr;
 
@@ -51,6 +53,12 @@ private:
     int sample_rate = 0;
     int channels = 0;
     bool initialized = false;
+    bool use_hwaccel = false;
+    enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
+
+    String resolve_path(String p_path);
+    void log_av_error(const char *prefix, int errnum);
+    bool try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx);
 
 protected:
     static void _bind_methods();
