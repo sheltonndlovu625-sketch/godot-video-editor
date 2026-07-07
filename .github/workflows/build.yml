@@ -127,8 +127,11 @@ jobs:
         run: |
           sudo mkdir -p /usr/local/lib/android/sdk/ndk
           sudo ln -s ${{ steps.setup-ndk.outputs.ndk-path }} /usr/local/lib/android/sdk/ndk/23.2.8568313
-      - name: Install SCons
-        run: pip install scons
+      - name: Install SCons and nasm
+        run: |
+          pip install scons
+          sudo apt-get update
+          sudo apt-get install -y nasm
       - name: Build FFmpeg Android
         run: bash scripts/build_ffmpeg_android.sh
         env:
