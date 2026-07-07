@@ -35,9 +35,6 @@ COMMON_FLAGS=(
     --enable-static
     --enable-gpl
     --enable-version3
-    --disable-asm
-    --disable-x86asm
-    --disable-inline-asm
     --disable-stripping
     --disable-bzlib
     --disable-libopenjpeg
@@ -94,6 +91,17 @@ build_arch() {
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
 
+    local EXTRA_CFLAGS="-O3 -fPIC"
+    local ASM_FLAGS=""
+
+    if [ "$ARCH" = "aarch64" ]; then
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv8-a"
+        ASM_FLAGS="--enable-neon --enable-thumb"
+    elif [ "$ARCH" = "arm" ]; then
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv7-a -mfpu=neon -mfloat-abi=softfp"
+        ASM_FLAGS="--enable-neon --enable-thumb"
+    fi
+
     "$SRC_DIR/configure" \
         --prefix="$OUT_DIR" \
         --arch="$ARCH" \
@@ -106,8 +114,9 @@ build_arch() {
         --nm="$TOOLCHAIN/bin/llvm-nm" \
         --ranlib="$TOOLCHAIN/bin/llvm-ranlib" \
         --sysroot="$TOOLCHAIN/sysroot" \
-        --extra-cflags="-O3 -fPIC" \
+        --extra-cflags="$EXTRA_CFLAGS" \
         --extra-ldflags="-O3" \
+        $ASM_FLAGS \
         "${COMMON_FLAGS[@]}" || {
             echo "=== CONFIGURE FAILED for $ARCH ==="
             tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
