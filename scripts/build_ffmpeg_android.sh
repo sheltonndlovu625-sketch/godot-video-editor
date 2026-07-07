@@ -48,6 +48,7 @@ COMMON_FLAGS=(
     --enable-swscale
     --enable-swresample
 
+    # Software decoders
     --enable-decoder=h264
     --enable-decoder=hevc
     --enable-decoder=mpeg4
@@ -57,6 +58,13 @@ COMMON_FLAGS=(
     --enable-decoder=png
     --enable-decoder=mp3
     --enable-decoder=aac
+
+    # Hardware decoders (Android MediaCodec)
+    --enable-decoder=h264_mediacodec
+    --enable-decoder=hevc_mediacodec
+    --enable-decoder=mpeg4_mediacodec
+    --enable-decoder=vp8_mediacodec
+    --enable-decoder=vp9_mediacodec
 
     --enable-encoder=mjpeg
     --enable-encoder=aac
@@ -100,6 +108,8 @@ build_arch() {
     elif [ "$ARCH" = "arm" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv7-a -mfpu=neon -mfloat-abi=softfp"
         ASM_FLAGS="--enable-neon --enable-thumb"
+    elif [ "$ARCH" = "x86_64" ]; then
+        ASM_FLAGS="--disable-x86asm"
     fi
 
     "$SRC_DIR/configure" \
