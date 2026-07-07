@@ -32,6 +32,14 @@ private:
     AVFrame *rgba_frame = nullptr;
     SwsContext *sws_ctx = nullptr;
 
+    // Scaled output
+    int original_width = 0;
+    int original_height = 0;
+    int scaled_width = 0;
+    int scaled_height = 0;
+    AVFrame *scaled_rgba_frame = nullptr;
+    SwsContext *sws_ctx_scaled = nullptr;
+
     AVCodecContext *audio_codec_ctx = nullptr;
     int audio_stream_index = -1;
     AVFrame *audio_frame = nullptr;
@@ -50,6 +58,7 @@ protected:
 public:
     bool open(String p_path);
     Ref<Image> read_video_frame();
+    Ref<Image> read_video_frame_scaled(int p_width, int p_height);
     PackedFloat32Array read_audio_samples(int p_max_samples);
     bool seek(double p_time_seconds);
     double get_duration() const;
