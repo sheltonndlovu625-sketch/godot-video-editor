@@ -15,10 +15,11 @@ class TimelineRenderer : public RefCounted {
 
 private:
     Ref<Timeline> timeline;
-    Dictionary decoders;  // source_path -> VideoDecoder cache
-    Dictionary last_render_times;  // source_path -> last source_time rendered
+    Dictionary decoders;
+    double last_render_time = -1.0;
 
     Ref<VideoDecoder> get_decoder(const String &p_path);
+    bool _needs_seek(double p_time);
     Ref<Image> composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height);
     PackedFloat32Array mix_audio(const TypedArray<PackedFloat32Array> &p_buffers);
 
