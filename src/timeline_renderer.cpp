@@ -1,6 +1,7 @@
 #include "timeline_renderer.h"
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/core/math.hpp>
 
 using namespace godot;
 
@@ -54,13 +55,11 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     TypedArray<Image> frames;
     TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
 
-    // Collect tracks into a Vector for sorting
     Vector<Ref<TimelineTrack>> sorted_tracks;
     for (int i = 0; i < video_tracks.size(); i++) {
         sorted_tracks.push_back(video_tracks[i]);
     }
 
-    // Sort by layer index (bottom first)
     struct TrackComparator {
         _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
             return a->get_layer_index() < b->get_layer_index();
@@ -68,26 +67,35 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     };
     sorted_tracks.sort_custom<TrackComparator>();
 
+    double frame_duration = 1.0 / timeline->get_frame_rate();
+
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
         if (clip.is_null()) continue;
 
-        // Calculate source time
         double local_time = p_time - clip->get_timeline_start();
         double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
 
         Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
         if (decoder.is_null()) continue;
 
-        if (!decoder->seek(source_time)) {
-            continue;
+        // Only seek if we jumped significantly (scrubbing) or first use.
+        // During normal playback, read sequentially for performance & correctness.
+        double last_time = last_render_times.get(clip->get_source_path(), -1.0);
+        bool needs_seek = (last_time < 0.0) || (Math::abs(source_time - last_time) > frame_duration * 2.0);
+
+        if (needs_seek) {
+            if (!decoder->seek(source_time)) {
+                continue;
+            }
         }
 
         Ref<Image> frame = decoder->read_video_frame();
         if (frame.is_null()) continue;
 
-        // Scale to output size if needed
+        last_render_times[clip->get_source_path()] = source_time;
+
         if (frame->get_width() != p_width || frame->get_height() != p_height) {
             frame->resize(p_width, p_height, Image::INTERPOLATE_BILINEAR);
         }
@@ -96,7 +104,6 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     }
 
     if (frames.is_empty()) {
-        // Return black frame
         Ref<Image> black = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
         black->fill(Color(0, 0, 0, 1));
         return black;
@@ -110,15 +117,12 @@ Ref<Image> TimelineRenderer::composite_frames(const TypedArray<Image> &p_frames,
         return Ref<Image>();
     }
 
-    // Start with bottom layer
     Ref<Image> result = p_frames[0];
 
-    // Blend additional layers on top (simple alpha blend)
     for (int i = 1; i < p_frames.size(); i++) {
         Ref<Image> top = p_frames[i];
         if (top.is_null()) continue;
 
-        // For now: simple overwrite blend. Later: add opacity, transforms, etc.
         for (int y = 0; y < p_height; y++) {
             for (int x = 0; x < p_width; x++) {
                 Color c = top->get_pixel(x, y);
@@ -152,6 +156,7 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
         Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
         if (decoder.is_null() || !decoder->has_audio()) continue;
 
+        // Audio still needs seek because we read in chunks, not frame-by-frame
         if (!decoder->seek(source_time)) {
             continue;
         }
@@ -172,7 +177,6 @@ PackedFloat32Array TimelineRenderer::mix_audio(const TypedArray<PackedFloat32Arr
         return result;
     }
 
-    // Find max size
     int max_size = 0;
     for (int i = 0; i < p_buffers.size(); i++) {
         PackedFloat32Array buf = p_buffers[i];
@@ -187,7 +191,6 @@ PackedFloat32Array TimelineRenderer::mix_audio(const TypedArray<PackedFloat32Arr
 
     result.resize(max_size);
 
-    // Mix by adding samples, then clamp
     for (int i = 0; i < p_buffers.size(); i++) {
         PackedFloat32Array buf = p_buffers[i];
         for (int j = 0; j < buf.size(); j++) {
@@ -195,7 +198,6 @@ PackedFloat32Array TimelineRenderer::mix_audio(const TypedArray<PackedFloat32Arr
         }
     }
 
-    // Clamp to prevent clipping
     for (int i = 0; i < max_size; i++) {
         if (result[i] > 1.0f) result[i] = 1.0f;
         if (result[i] < -1.0f) result[i] = -1.0f;
@@ -242,7 +244,6 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
     for (int frame = 0; frame < total_frames; frame++) {
         double time = frame * frame_time;
 
-        // Render and write video frame
         Ref<Image> img = render_video_frame(time, p_width, p_height);
         if (img.is_null()) {
             UtilityFunctions::push_error("[TimelineRenderer] Failed to render frame ", frame);
@@ -256,7 +257,6 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
             return false;
         }
 
-        // Render and write audio
         if (has_audio) {
             PackedFloat32Array audio = render_audio(time, audio_samples_per_frame, p_sample_rate);
             if (audio.size() > 0) {
@@ -277,7 +277,6 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
 }
 
 void TimelineRenderer::clear_cache() {
-    // Close all decoders
     Array keys = decoders.keys();
     for (int i = 0; i < keys.size(); i++) {
         Ref<VideoDecoder> decoder = decoders[keys[i]];
@@ -286,4 +285,5 @@ void TimelineRenderer::clear_cache() {
         }
     }
     decoders.clear();
+    last_render_times.clear();
 }
