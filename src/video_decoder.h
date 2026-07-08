@@ -56,8 +56,6 @@ private:
     bool use_hwaccel = false;
     enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
 
-    String resolve_path(String p_path);
-    void log_av_error(const char *prefix, int errnum);
     bool try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx);
 
 protected:
