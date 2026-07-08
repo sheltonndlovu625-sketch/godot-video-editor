@@ -1,6 +1,8 @@
 #include "timeline_renderer.h"
 #include <godot_cpp/classes/image.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/variant/utility_functi
+ons.hpp>
 #include <godot_cpp/core/math.hpp>
 
 using namespace godot;
@@ -33,9 +35,11 @@ Ref<Timeline> TimelineRenderer::get_timeline() const {
 
 Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
     if (decoders.has(p_path)) {
+        UtilityFunctions::print("[TimelineRenderer] REUSING decoder for: ", p_path);
         return decoders[p_path];
     }
 
+    UtilityFunctions::print("[TimelineRenderer] CREATING decoder for: ", p_path);
     Ref<VideoDecoder> decoder;
     decoder.instantiate();
     if (!decoder->open(p_path)) {
@@ -49,17 +53,24 @@ Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
 
 bool TimelineRenderer::_needs_seek(double p_time) {
     if (last_render_time < 0.0) {
-        return true; // First render ever
+        UtilityFunctions::print("[TimelineRenderer] NEEDS_SEEK: first frame (last=", last_render_time, ")");
+        return true;
     }
     double frame_duration = 1.0 / timeline->get_frame_rate();
-    // If time jumped more than 2 frames, we scrubbed — seek
-    return Math::abs(p_time - last_render_time) > frame_duration * 2.5;
+    double delta = Math::abs(p_time - last_render_time);
+    bool needs = delta > frame_duration * 2.5;
+    if (needs) {
+        UtilityFunctions::print("[TimelineRenderer] NEEDS_SEEK: delta=", delta, " > threshold=", frame_duration * 2.5);
+    }
+    return needs;
 }
 
 Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
     if (timeline.is_null()) {
         return Ref<Image>();
     }
+
+    uint64_t t0 = OS::get_singleton()->get_ticks_usec();
 
     bool seek = _needs_seek(p_time);
 
@@ -78,6 +89,8 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     };
     sorted_tracks.sort_custom<TrackComparator>();
 
+    uint64_t t_decode_start = OS::get_singleton()->get_ticks_usec();
+
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
@@ -90,16 +103,23 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         if (decoder.is_null()) continue;
 
         if (seek) {
+            uint64_t t_seek = OS::get_singleton()->get_ticks_usec();
             if (!decoder->seek(source_time)) {
                 continue;
             }
+            UtilityFunctions::print("[TimelineRenderer] SEEK took ", (OS::get_singleton()->get_ticks_usec() - t_seek) / 1000.0, " ms");
         }
 
+        uint64_t t_read = OS::get_singleton()->get_ticks_usec();
         Ref<Image> frame = decoder->read_video_frame();
+        UtilityFunctions::print("[TimelineRenderer] READ took ", (OS::get_singleton()->get_ticks_usec() - t_read) / 1000.0, " ms");
+
         if (frame.is_null()) continue;
 
         if (frame->get_width() != p_width || frame->get_height() != p_height) {
+            uint64_t t_resize = OS::get_singleton()->get_ticks_usec();
             frame->resize(p_width, p_height, Image::INTERPOLATE_BILINEAR);
+            UtilityFunctions::print("[TimelineRenderer] RESIZE took ", (OS::get_singleton()->get_ticks_usec() - t_resize) / 1000.0, " ms");
         }
 
         frames.push_back(frame);
@@ -107,13 +127,20 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
 
     last_render_time = p_time;
 
+    uint64_t total = OS::get_singleton()->get_ticks_usec() - t0;
+    UtilityFunctions::print("[TimelineRenderer] TOTAL render_video_frame took ", total / 1000.0, " ms");
+
     if (frames.is_empty()) {
         Ref<Image> black = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
         black->fill(Color(0, 0, 0, 1));
         return black;
     }
 
-    return composite_frames(frames, p_width, p_height);
+    uint64_t t_comp = OS::get_singleton()->get_ticks_usec();
+    Ref<Image> result = composite_frames(frames, p_width, p_height);
+    UtilityFunctions::print("[TimelineRenderer] COMPOSITE took ", (OS::get_singleton()->get_ticks_usec() - t_comp) / 1000.0, " ms");
+
+    return result;
 }
 
 Ref<Image> TimelineRenderer::composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height) {
