@@ -1,8 +1,11 @@
 #!/bin/bash
-set -euo pipefail
+set -euxo pipefail
 
 WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 INSTALL_PREFIX="$WORKSPACE/ffmpeg-linux"
+
+# Nuclear clean: ensure no stale static libs from previous runs
+rm -rf "$INSTALL_PREFIX"
 mkdir -p "$INSTALL_PREFIX"
 
 FFMPEG_VERSION="6.1.1"
@@ -23,6 +26,7 @@ COMMON_FLAGS=(
     --disable-shared
     --enable-static
     --enable-pic
+    --disable-asm
     --disable-x86asm
     --enable-gpl
     --enable-version3
