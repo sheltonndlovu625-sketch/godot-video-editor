@@ -79,11 +79,8 @@ COMMON_FLAGS=(
 build_macos() {
     local ARCH=$1
     local SDK=$2
-    local OUT_DIR="$INSTALL_PREFIX/$ARCH"
 
     echo "=== Building FFmpeg for macOS $ARCH ($SDK) ==="
-    rm -rf "$OUT_DIR"
-    mkdir -p "$OUT_DIR"
 
     local BUILD_DIR="$WORKSPACE/build-ffmpeg-macos-$ARCH"
     rm -rf "$BUILD_DIR"
@@ -102,7 +99,7 @@ build_macos() {
     fi
 
     "$SRC_DIR/configure" \
-        --prefix="$OUT_DIR" \
+        --prefix="$INSTALL_PREFIX" \
         --arch="$ARCH" \
         --cc="$CC" \
         --cxx="$CXX" \
@@ -130,3 +127,4 @@ build_macos "x86_64" "macosx"
 
 echo "=== FFmpeg macOS build complete ==="
 echo "Libraries installed to: $INSTALL_PREFIX"
+ls -la "$INSTALL_PREFIX/lib/"
