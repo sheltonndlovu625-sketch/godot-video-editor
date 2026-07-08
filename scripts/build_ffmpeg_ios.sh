@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -euxo pipefail
 
 # Unset any Android NDK variables that might leak from CI
 unset ANDROID_NDK_ROOT
@@ -7,6 +7,9 @@ unset ANDROID_HOME
 
 WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 INSTALL_PREFIX="$WORKSPACE/ffmpeg-ios"
+
+# Nuclear clean
+rm -rf "$INSTALL_PREFIX"
 mkdir -p "$INSTALL_PREFIX"
 
 FFMPEG_VERSION="6.1.1"
@@ -29,6 +32,7 @@ COMMON_FLAGS=(
     --disable-shared
     --enable-static
     --enable-pic
+    --disable-asm
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -44,7 +48,6 @@ COMMON_FLAGS=(
     --enable-swscale
     --enable-swresample
 
-    # Software decoders
     --enable-decoder=h264
     --enable-decoder=hevc
     --enable-decoder=mpeg4
@@ -55,7 +58,6 @@ COMMON_FLAGS=(
     --enable-decoder=mp3
     --enable-decoder=aac
 
-    # Hardware decoders (iOS VideoToolbox)
     --enable-decoder=h264_videotoolbox
     --enable-decoder=hevc_videotoolbox
 
@@ -84,6 +86,7 @@ build_ios() {
     local OUT_DIR="$INSTALL_PREFIX/$ARCH"
 
     echo "=== Building FFmpeg for iOS $ARCH ($SDK) ==="
+    rm -rf "$OUT_DIR"
     mkdir -p "$OUT_DIR"
 
     local BUILD_DIR="$WORKSPACE/build-ffmpeg-ios-$ARCH"
@@ -97,11 +100,9 @@ build_ios() {
     local CXX="xcrun -sdk $SDK clang++"
 
     local EXTRA_CFLAGS="-arch $ARCH -mios-version-min=12.0 -O3 -fPIC"
-    local NEON_FLAGS=""
 
     if [ "$ARCH" = "arm64" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv8-a"
-        NEON_FLAGS="--enable-neon --enable-thumb"
     fi
 
     "$SRC_DIR/configure" \
@@ -116,7 +117,6 @@ build_ios() {
         --sysroot="$SYSROOT" \
         --extra-cflags="$EXTRA_CFLAGS" \
         --extra-ldflags="-arch $ARCH -mios-version-min=12.0 -O3" \
-        $NEON_FLAGS \
         "${COMMON_FLAGS[@]}" || {
             echo "=== CONFIGURE FAILED for iOS $ARCH ==="
             tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
