@@ -24,6 +24,7 @@ COMMON_FLAGS=(
     --disable-doc
     --disable-shared
     --enable-static
+    --enable-pic
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -91,7 +92,7 @@ build_macos() {
     local CC="xcrun -sdk $SDK clang"
     local CXX="xcrun -sdk $SDK clang++"
 
-    local EXTRA_CFLAGS="-arch $ARCH -mios-version-min=12.0 -O3 -fPIC"
+    local EXTRA_CFLAGS="-arch $ARCH -mmacosx-version-min=11.0 -O3 -fPIC"
     local NEON_FLAGS=""
 
     if [ "$ARCH" = "arm64" ]; then
@@ -110,7 +111,7 @@ build_macos() {
         --ranlib="xcrun ranlib" \
         --sysroot="$SYSROOT" \
         --extra-cflags="$EXTRA_CFLAGS" \
-        --extra-ldflags="-arch $ARCH -mios-version-min=12.0 -O3" \
+        --extra-ldflags="-arch $ARCH -mmacosx-version-min=11.0 -O3" \
         $NEON_FLAGS \
         "${COMMON_FLAGS[@]}" || {
             echo "=== CONFIGURE FAILED for macOS $ARCH ==="
@@ -120,6 +121,8 @@ build_macos() {
 
     make -j$(sysctl -n hw.ncpu)
     make install
+
+    cd "$WORKSPACE"
 }
 
 build_macos "arm64" "macosx"
