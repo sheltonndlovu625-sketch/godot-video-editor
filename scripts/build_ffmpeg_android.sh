@@ -33,6 +33,7 @@ COMMON_FLAGS=(
     --disable-doc
     --disable-shared
     --enable-static
+    --enable-pic
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -135,6 +136,8 @@ build_arch() {
 
     make -j$(nproc)
     make install
+
+    cd "$WORKSPACE"
 }
 
 build_arch "aarch64" "armv8-a" "aarch64-linux-android"
