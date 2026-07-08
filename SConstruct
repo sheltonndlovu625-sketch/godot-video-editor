@@ -52,11 +52,17 @@ ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 if env["platform"] == "android":
     env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
     env.Append(LIBS=["android", "log"])
-    env.Append(LINKFLAGS=[
-        "-Wl,--whole-archive",
-        "-lavformat", "-lavcodec", "-lswresample", "-lswscale", "-lavutil",
-        "-Wl,--no-whole-archive"
-    ])
+    # Use explicit .a paths for --whole-archive so symbols aren't dropped
+    if ffmpeg_path and os.path.exists(ffmpeg_lib):
+        whole_libs = []
+        for lib in ffmpeg_libs:
+            lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
+            if os.path.exists(lib_path):
+                whole_libs.append(lib_path)
+        if whole_libs:
+            env.Append(LINKFLAGS=["-Wl,--whole-archive"])
+            env.Append(LINKFLAGS=whole_libs)
+            env.Append(LINKFLAGS=["-Wl,--no-whole-archive"])
 
 elif env["platform"] == "ios":
     env.Append(CPPDEFINES=["IOS_ENABLED"])
