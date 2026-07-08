@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -euxo pipefail
 
 NDK="${ANDROID_NDK_ROOT:-}"
 if [ -z "$NDK" ]; then
@@ -12,6 +12,9 @@ API_LEVEL=24
 
 WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 INSTALL_PREFIX="$WORKSPACE/ffmpeg-android"
+
+# Nuclear clean
+rm -rf "$INSTALL_PREFIX"
 mkdir -p "$INSTALL_PREFIX"
 
 FFMPEG_VERSION="6.1.1"
@@ -34,6 +37,7 @@ COMMON_FLAGS=(
     --disable-shared
     --enable-static
     --enable-pic
+    --disable-asm
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -49,7 +53,6 @@ COMMON_FLAGS=(
     --enable-swscale
     --enable-swresample
 
-    # Software decoders
     --enable-decoder=h264
     --enable-decoder=hevc
     --enable-decoder=mpeg4
@@ -60,7 +63,6 @@ COMMON_FLAGS=(
     --enable-decoder=mp3
     --enable-decoder=aac
 
-    # Hardware decoders (Android MediaCodec)
     --enable-decoder=h264_mediacodec
     --enable-decoder=hevc_mediacodec
     --enable-decoder=mpeg4_mediacodec
@@ -93,6 +95,7 @@ build_arch() {
     local OUT_DIR="$INSTALL_PREFIX/$ARCH"
 
     echo "=== Building FFmpeg for Android $ARCH ==="
+    rm -rf "$OUT_DIR"
     mkdir -p "$OUT_DIR"
 
     local BUILD_DIR="$WORKSPACE/build-ffmpeg-android-$ARCH"
@@ -105,10 +108,8 @@ build_arch() {
 
     if [ "$ARCH" = "aarch64" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv8-a"
-        ASM_FLAGS="--enable-neon --enable-thumb"
     elif [ "$ARCH" = "arm" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv7-a -mfpu=neon -mfloat-abi=softfp"
-        ASM_FLAGS="--enable-neon --enable-thumb"
     elif [ "$ARCH" = "x86_64" ]; then
         ASM_FLAGS="--disable-x86asm"
     fi
