@@ -28,6 +28,7 @@ COMMON_FLAGS=(
     --disable-doc
     --disable-shared
     --enable-static
+    --enable-pic
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -124,6 +125,8 @@ build_ios() {
 
     make -j$(sysctl -n hw.ncpu)
     make install
+
+    cd "$WORKSPACE"
 }
 
 build_ios "arm64" "iphoneos"
