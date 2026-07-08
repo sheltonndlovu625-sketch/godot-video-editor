@@ -73,8 +73,9 @@ if env["platform"] == "android":
 
 elif env["platform"] == "ios":
     env.Append(CPPDEFINES=["IOS_ENABLED"])
-    # Prevent linker from stripping symbols that appear unused
-    env.Append(LINKFLAGS=["-Wl,-no_dead_strip"])
+    # Use -all_load to force the linker to pull in all object files from static libs
+    # This prevents symbol stripping and ensures typeinfo is preserved
+    env.Append(LINKFLAGS=["-all_load"])
     # FFmpeg static libs first, then frameworks they depend on
     if ffmpeg_path and os.path.exists(ffmpeg_lib):
         for lib in ffmpeg_libs:
