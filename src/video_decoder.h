@@ -30,11 +30,10 @@ private:
     AVCodecContext *video_codec_ctx = nullptr;
     int video_stream_index = -1;
     AVFrame *video_frame = nullptr;
-    AVFrame *hw_frame = nullptr;      // Hardware decoded frame
+    AVFrame *hw_frame = nullptr;
     AVFrame *rgba_frame = nullptr;
     SwsContext *sws_ctx = nullptr;
 
-    // Scaled output
     int original_width = 0;
     int original_height = 0;
     int scaled_width = 0;
