@@ -12,6 +12,9 @@ env = SConscript("godot-cpp/SConstruct")
 env.Append(CPPPATH=["src/"])
 sources = Glob("src/*.cpp")
 
+# Ensure RTTI is enabled so typeinfo symbols are emitted for all classes
+env.Append(CXXFLAGS=["-frtti"])
+
 # ------------------------------------------------------------------
 # FFmpeg Configuration
 # ------------------------------------------------------------------
@@ -36,13 +39,15 @@ if ffmpeg_path:
         env.Append(CPPPATH=[ffmpeg_include])
         print("FFmpeg include: " + ffmpeg_include)
     else:
-        print("WARNING: FFmpeg include not found: " + ffmpeg_include)
+        print("ERROR: FFmpeg include not found: " + ffmpeg_include)
+        sys.exit(1)
 
     if os.path.exists(ffmpeg_lib):
         env.Append(LIBPATH=[ffmpeg_lib])
         print("FFmpeg lib: " + ffmpeg_lib)
     else:
-        print("WARNING: FFmpeg lib not found: " + ffmpeg_lib)
+        print("ERROR: FFmpeg lib not found: " + ffmpeg_lib)
+        sys.exit(1)
 
 ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 
@@ -52,13 +57,15 @@ ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 if env["platform"] == "android":
     env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
     env.Append(LIBS=["android", "log"])
-    # Use explicit .a paths for --whole-archive so symbols aren't dropped
     if ffmpeg_path and os.path.exists(ffmpeg_lib):
         whole_libs = []
         for lib in ffmpeg_libs:
             lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
             if os.path.exists(lib_path):
                 whole_libs.append(lib_path)
+            else:
+                print("ERROR: FFmpeg library not found: " + lib_path)
+                sys.exit(1)
         if whole_libs:
             env.Append(LINKFLAGS=["-Wl,--whole-archive"])
             env.Append(LINKFLAGS=whole_libs)
@@ -66,6 +73,17 @@ if env["platform"] == "android":
 
 elif env["platform"] == "ios":
     env.Append(CPPDEFINES=["IOS_ENABLED"])
+    # Prevent linker from stripping symbols that appear unused
+    env.Append(LINKFLAGS=["-Wl,-no_dead_strip"])
+    # FFmpeg static libs first, then frameworks they depend on
+    if ffmpeg_path and os.path.exists(ffmpeg_lib):
+        for lib in ffmpeg_libs:
+            lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
+            if os.path.exists(lib_path):
+                env.Append(LINKFLAGS=["-Wl,-force_load," + lib_path])
+            else:
+                print("ERROR: FFmpeg library not found: " + lib_path)
+                sys.exit(1)
     env.Append(LINKFLAGS=[
         "-framework", "Foundation",
         "-framework", "CoreVideo",
@@ -73,11 +91,6 @@ elif env["platform"] == "ios":
         "-framework", "AVFoundation",
         "-framework", "VideoToolbox",
     ])
-    if ffmpeg_path and os.path.exists(ffmpeg_lib):
-        for lib in ffmpeg_libs:
-            lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
-            if os.path.exists(lib_path):
-                env.Append(LINKFLAGS=["-Wl,-force_load," + lib_path])
 
 elif env["platform"] == "windows":
     env.Append(LIBS=ffmpeg_libs)
