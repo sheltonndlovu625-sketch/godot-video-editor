@@ -143,7 +143,9 @@ Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time,
     String cache_key = "black";
     TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
     for (int i = 0; i < video_tracks.size(); i++) {
-        Ref<TimelineClip> clip = video_tracks[i]->get_clip_at_time(p_time);
+        Ref<TimelineTrack> track = video_tracks[i];
+        if (track.is_null()) continue;
+        Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
         if (clip.is_valid()) {
             cache_key = clip->get_source_path();
             break;
@@ -195,6 +197,7 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
 
     for (int i = 0; i < audio_tracks.size(); i++) {
         Ref<TimelineTrack> track = audio_tracks[i];
+        if (track.is_null()) continue;
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
         if (clip.is_null()) continue;
 
