@@ -245,6 +245,9 @@ bool VideoDecoder::open(String p_path) {
     initialized = true;
     current_time = 0.0;
     UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", original_width, "x", original_height, ")");
+    UtilityFunctions::print("[VideoDecoder] Video stream index: ", video_stream_index, " Audio stream index: ", audio_stream_index);
+    UtilityFunctions::print("[VideoDecoder] Hardware acceleration: ", use_hwaccel ? "YES" : "NO");
+
     if (use_hwaccel) {
         UtilityFunctions::print("[VideoDecoder] Hardware acceleration enabled");
     }
@@ -278,7 +281,6 @@ Ref<Image> VideoDecoder::read_video_frame() {
             }
 
             AVFrame *frame_to_convert = video_frame;
-
             // If hardware decoded, transfer to CPU memory
             if (use_hwaccel && video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
