@@ -59,19 +59,6 @@ bool TimelineRenderer::_needs_seek(double p_time) {
     return delta > frame_duration * 2.5;
 }
 
-Ref<ImageTexture> TimelineRenderer::get_or_create_texture(const String &p_path, int p_width, int p_height) {
-    String key = p_path + String(":") + String::num_int64(p_width) + String("x") + String::num_int64(p_height);
-    if (texture_cache.has(key)) {
-        return texture_cache[key];
-    }
-    Ref<ImageTexture> tex;
-    tex.instantiate();
-    Ref<Image> dummy = Image::create(1, 1, false, Image::FORMAT_RGBA8);
-    tex->set_image(dummy);
-    texture_cache[key] = tex;
-    return tex;
-}
-
 Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
     if (timeline.is_null()) {
         return Ref<Image>();
@@ -152,8 +139,23 @@ Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time,
         }
     }
 
-    Ref<ImageTexture> tex = get_or_create_texture(cache_key, p_width, p_height);
-    tex->update(img);
+    String key = cache_key + String(":") + String::num_int64(p_width) + String("x") + String::num_int64(p_height);
+    
+    if (texture_cache.has(key)) {
+        Ref<ImageTexture> tex = texture_cache[key];
+        // Check if size matches — if not, recreate
+        if (tex->get_width() == img->get_width() && tex->get_height() == img->get_height()) {
+            tex->update(img);
+            return tex;
+        }
+        // Size mismatch: remove old texture and create new one
+        texture_cache.erase(key);
+    }
+
+    Ref<ImageTexture> tex;
+    tex.instantiate();
+    tex->set_image(img);
+    texture_cache[key] = tex;
     return tex;
 }
 
