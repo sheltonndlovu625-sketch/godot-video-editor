@@ -13,7 +13,6 @@ API_LEVEL=24
 WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 INSTALL_PREFIX="$WORKSPACE/ffmpeg-android"
 
-# Nuclear clean
 rm -rf "$INSTALL_PREFIX"
 mkdir -p "$INSTALL_PREFIX"
 
@@ -37,7 +36,6 @@ COMMON_FLAGS=(
     --disable-shared
     --enable-static
     --enable-pic
-    --disable-asm
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -46,6 +44,9 @@ COMMON_FLAGS=(
     --disable-iconv
     --disable-zlib
     --disable-everything
+
+    --enable-jni
+    --enable-mediacodec
 
     --enable-avformat
     --enable-avcodec
@@ -110,6 +111,7 @@ build_arch() {
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv8-a"
     elif [ "$ARCH" = "arm" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv7-a -mfpu=neon -mfloat-abi=softfp"
+        ASM_FLAGS="--disable-armv5te --disable-armv6 --disable-armv6t2"
     elif [ "$ARCH" = "x86_64" ]; then
         ASM_FLAGS="--disable-x86asm"
     fi
