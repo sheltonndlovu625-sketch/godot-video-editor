@@ -1,5 +1,6 @@
 #include "video_decoder.h"
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/os.hpp>
 
 using namespace godot;
 
@@ -46,9 +47,7 @@ VideoDecoder::~VideoDecoder() {
 }
 
 bool VideoDecoder::try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx) {
-    // Try platform-specific hardware decoders
     #if defined(__ANDROID__)
-        // Android MediaCodec
         const AVCodec *hw_codec = avcodec_find_decoder_by_name("h264_mediacodec");
         if (!hw_codec) {
             hw_codec = avcodec_find_decoder_by_name("hevc_mediacodec");
@@ -59,7 +58,6 @@ bool VideoDecoder::try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx) {
             return true;
         }
     #elif defined(__APPLE__)
-        // macOS/iOS VideoToolbox
         const AVCodec *hw_codec = avcodec_find_decoder_by_name("h264_videotoolbox");
         if (!hw_codec) {
             hw_codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
@@ -70,16 +68,8 @@ bool VideoDecoder::try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx) {
             return true;
         }
     #elif defined(__linux__)
-        // Linux VAAPI (optional, requires GPU setup)
-        // hw_device_type = av_hwdevice_find_type_by_name("vaapi");
-        // if (hw_device_type != AV_HWDEVICE_TYPE_NONE) {
-        //     // Setup VAAPI context
-        // }
     #elif defined(_WIN32)
-        // Windows DXVA/D3D11 (optional)
-        // hw_device_type = av_hwdevice_find_type_by_name("dxva2");
     #endif
-
     return false;
 }
 
@@ -129,7 +119,6 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
-    // Try hardware decoder first
     const AVCodec *hw_codec = nullptr;
     if (try_hwaccel(&hw_codec, nullptr)) {
         vcodec = hw_codec;
@@ -157,7 +146,6 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
-    // Store original dimensions
     original_width = video_codec_ctx->width;
     original_height = video_codec_ctx->height;
 
@@ -247,7 +235,6 @@ bool VideoDecoder::open(String p_path) {
     UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", original_width, "x", original_height, ")");
     UtilityFunctions::print("[VideoDecoder] Video stream index: ", video_stream_index, " Audio stream index: ", audio_stream_index);
     UtilityFunctions::print("[VideoDecoder] Hardware acceleration: ", use_hwaccel ? "YES" : "NO");
-
     if (use_hwaccel) {
         UtilityFunctions::print("[VideoDecoder] Hardware acceleration enabled");
     }
@@ -259,10 +246,14 @@ Ref<Image> VideoDecoder::read_video_frame() {
         return Ref<Image>();
     }
 
+    uint64_t t0 = OS::get_singleton()->get_ticks_usec();
+    int packet_count = 0;
+
     AVPacket *pkt = av_packet_alloc();
     Ref<Image> result;
 
     while (av_read_frame(format_ctx, pkt) >= 0) {
+        packet_count++;
         if (pkt->stream_index == video_stream_index) {
             int ret = avcodec_send_packet(video_codec_ctx, pkt);
             av_packet_unref(pkt);
@@ -281,7 +272,7 @@ Ref<Image> VideoDecoder::read_video_frame() {
             }
 
             AVFrame *frame_to_convert = video_frame;
-            // If hardware decoded, transfer to CPU memory
+
             if (use_hwaccel && video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
                 if (ret < 0) {
@@ -291,8 +282,10 @@ Ref<Image> VideoDecoder::read_video_frame() {
                 frame_to_convert = hw_frame;
             }
 
+            uint64_t t_sws = OS::get_singleton()->get_ticks_usec();
             sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
+            uint64_t sws_ms = (OS::get_singleton()->get_ticks_usec() - t_sws) / 1000;
 
             int img_size = rgba_frame->linesize[0] * video_codec_ctx->height;
             PackedByteArray bytes;
@@ -303,6 +296,9 @@ Ref<Image> VideoDecoder::read_video_frame() {
                 video_codec_ctx->width, video_codec_ctx->height,
                 false, Image::FORMAT_RGBA8, bytes
             );
+
+            uint64_t total_ms = (OS::get_singleton()->get_ticks_usec() - t0) / 1000;
+            UtilityFunctions::print("[VideoDecoder] read_video_frame: ", packet_count, " packets, sws=", sws_ms, "ms, total=", total_ms, "ms");
             break;
         } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx) {
             int ret = avcodec_send_packet(audio_codec_ctx, pkt);
@@ -373,6 +369,8 @@ Ref<Image> VideoDecoder::read_video_frame() {
     }
 
     av_packet_free(&pkt);
+    uint64_t total_ms = (OS::get_singleton()->get_ticks_usec() - t0) / 1000;
+    UtilityFunctions::print("[VideoDecoder] read_video_frame EXIT: total=", total_ms, "ms, packets=", packet_count);
     return result;
 }
 
@@ -588,11 +586,15 @@ bool VideoDecoder::seek(double p_time_seconds) {
         return false;
     }
 
+    uint64_t t0 = OS::get_singleton()->get_ticks_usec();
+
     int64_t ts = (int64_t)(p_time_seconds * AV_TIME_BASE);
     int ret = avformat_seek_file(format_ctx, -1, INT64_MIN, ts, INT64_MAX, 0);
     if (ret < 0) {
         ret = av_seek_frame(format_ctx, -1, ts, 0);
     }
+
+    uint64_t seek_ms = (OS::get_singleton()->get_ticks_usec() - t0) / 1000;
 
     if (ret < 0) {
         log_av_error("Seek failed", ret);
@@ -608,6 +610,7 @@ bool VideoDecoder::seek(double p_time_seconds) {
     audio_buffer.resize(0);
     current_time = p_time_seconds;
 
+    UtilityFunctions::print("[VideoDecoder] seek to ", p_time_seconds, " took ", seek_ms, " ms");
     return true;
 }
 
@@ -701,7 +704,6 @@ bool VideoDecoder::is_open() const {
 
 // ------------------------------------------------------------------
 // Belt-and-suspenders: ensure typeinfo for VideoDecoder is emitted
-// in this translation unit so the linker never strips it.
 // ------------------------------------------------------------------
 #include <typeinfo>
 namespace godot {
