@@ -11,10 +11,11 @@ class TimelineClip : public RefCounted {
 
 private:
     String source_path;
-    double timeline_start = 0.0;   // When this clip starts on the timeline (seconds)
-    double source_in_point = 0.0;  // Trim: start reading from source at this time
-    double source_out_point = 0.0; // Trim: stop reading at this time (0 = use full duration)
-    double playback_speed = 1.0;   // 1.0 = normal, 2.0 = double speed, 0.5 = half speed
+    String proxy_path;              // <-- ADDED: 480p preview file
+    double timeline_start = 0.0;
+    double source_in_point = 0.0;
+    double source_out_point = 0.0;
+    double playback_speed = 1.0;
 
 protected:
     static void _bind_methods();
@@ -22,6 +23,10 @@ protected:
 public:
     void set_source_path(const String &p_path);
     String get_source_path() const;
+
+    void set_proxy_path(const String &p_path);   // <-- ADDED
+    String get_proxy_path() const;               // <-- ADDED
+    String get_effective_path(bool p_use_proxy) const; // <-- ADDED
 
     void set_timeline_start(double p_time);
     double get_timeline_start() const;
@@ -35,8 +40,8 @@ public:
     void set_playback_speed(double p_speed);
     double get_playback_speed() const;
 
-    double get_duration() const;   // source_out_point - source_in_point (adjusted for speed)
-    double get_timeline_end() const; // timeline_start + duration
+    double get_duration() const;
+    double get_timeline_end() const;
 
     TimelineClip();
     ~TimelineClip();
@@ -45,4 +50,3 @@ public:
 }
 
 #endif
-
