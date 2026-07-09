@@ -1,6 +1,5 @@
 #include "timeline_renderer.h"
 #include <godot_cpp/classes/image.hpp>
-#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/variant/utility_functi
 ons.hpp>
 #include <godot_cpp/core/math.hpp>
@@ -112,7 +111,8 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
 
         uint64_t t_read = OS::get_singleton()->get_ticks_usec();
         Ref<Image> frame = decoder->read_video_frame();
-        UtilityFunctions::print("[TimelineRenderer] READ took ", (OS::get_singleton()->get_ticks_usec() - t_read) / 1000.0, " ms");
+        uint64_t read_ms = (OS::get_singleton()->get_ticks_usec() - t_read) / 1000.0;
+        UtilityFunctions::print("[TimelineRenderer] READ took ", read_ms, " ms");
 
         if (frame.is_null()) continue;
 
