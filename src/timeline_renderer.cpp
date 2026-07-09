@@ -1,5 +1,6 @@
 #include "timeline_renderer.h"
 #include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
 
@@ -11,6 +12,7 @@ void TimelineRenderer::_bind_methods() {
     ClassDB::add_property("TimelineRenderer", PropertyInfo(Variant::OBJECT, "timeline"), "set_timeline", "get_timeline");
 
     ClassDB::bind_method(D_METHOD("render_video_frame", "time", "width", "height"), &TimelineRenderer::render_video_frame);
+    ClassDB::bind_method(D_METHOD("render_video_frame_to_texture", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_texture);
     ClassDB::bind_method(D_METHOD("render_audio", "time", "num_samples", "sample_rate"), &TimelineRenderer::render_audio);
     ClassDB::bind_method(D_METHOD("export_to_file", "path", "width", "height", "fps", "video_bitrate", "sample_rate", "audio_bitrate"), &TimelineRenderer::export_to_file);
     ClassDB::bind_method(D_METHOD("clear_cache"), &TimelineRenderer::clear_cache);
@@ -33,7 +35,6 @@ Ref<Timeline> TimelineRenderer::get_timeline() const {
 
 Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
     if (decoders.has(p_path)) {
-        UtilityFunctions::print("[TimelineRenderer] REUSING decoder for: ", p_path);
         return decoders[p_path];
     }
 
@@ -51,16 +52,24 @@ Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
 
 bool TimelineRenderer::_needs_seek(double p_time) {
     if (last_render_time < 0.0) {
-        UtilityFunctions::print("[TimelineRenderer] NEEDS_SEEK: first frame (last=", last_render_time, ")");
         return true;
     }
     double frame_duration = 1.0 / timeline->get_frame_rate();
     double delta = Math::abs(p_time - last_render_time);
-    bool needs = delta > frame_duration * 2.5;
-    if (needs) {
-        UtilityFunctions::print("[TimelineRenderer] NEEDS_SEEK: delta=", delta, " > threshold=", frame_duration * 2.5);
+    return delta > frame_duration * 2.5;
+}
+
+Ref<ImageTexture> TimelineRenderer::get_or_create_texture(const String &p_path, int p_width, int p_height) {
+    String key = p_path + ":" + String::num_int64(p_width) + "x" + String::num_int64(p_height);
+    if (texture_cache.has(key)) {
+        return texture_cache[key];
     }
-    return needs;
+    Ref<ImageTexture> tex;
+    tex.instantiate();
+    Ref<Image> dummy = Image::create(1, 1, false, Image::FORMAT_RGBA8);
+    tex->set_image(dummy);
+    texture_cache[key] = tex;
+    return tex;
 }
 
 Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
@@ -68,18 +77,19 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         return Ref<Image>();
     }
 
-    uint64_t t0 = Time::get_singleton()->get_ticks_msec();
-
     bool seek = _needs_seek(p_time);
 
-    TypedArray<Image> frames;
     TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
+    if (video_tracks.is_empty()) {
+        Ref<Image> black = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+        black->fill(Color(0, 0, 0, 1));
+        return black;
+    }
 
     Vector<Ref<TimelineTrack>> sorted_tracks;
     for (int i = 0; i < video_tracks.size(); i++) {
         sorted_tracks.push_back(video_tracks[i]);
     }
-
     struct TrackComparator {
         _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
             return a->get_layer_index() < b->get_layer_index();
@@ -87,6 +97,7 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     };
     sorted_tracks.sort_custom<TrackComparator>();
 
+    Vector<Ref<Image>> frames;
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
@@ -99,33 +110,16 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         if (decoder.is_null()) continue;
 
         if (seek) {
-            uint64_t t_seek = Time::get_singleton()->get_ticks_msec();
-            if (!decoder->seek(source_time)) {
-                continue;
-            }
-            UtilityFunctions::print("[TimelineRenderer] SEEK took ", Time::get_singleton()->get_ticks_msec() - t_seek, " ms");
+            decoder->seek(source_time);
         }
 
-        uint64_t t_read = Time::get_singleton()->get_ticks_msec();
-        Ref<Image> frame = decoder->read_video_frame();
-        uint64_t read_ms = Time::get_singleton()->get_ticks_msec() - t_read;
-        UtilityFunctions::print("[TimelineRenderer] READ took ", read_ms, " ms");
-
+        Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
         if (frame.is_null()) continue;
-
-        if (frame->get_width() != p_width || frame->get_height() != p_height) {
-            uint64_t t_resize = Time::get_singleton()->get_ticks_msec();
-            frame->resize(p_width, p_height, Image::INTERPOLATE_BILINEAR);
-            UtilityFunctions::print("[TimelineRenderer] RESIZE took ", Time::get_singleton()->get_ticks_msec() - t_resize, " ms");
-        }
 
         frames.push_back(frame);
     }
 
     last_render_time = p_time;
-
-    uint64_t total = Time::get_singleton()->get_ticks_msec() - t0;
-    UtilityFunctions::print("[TimelineRenderer] TOTAL render_video_frame took ", total, " ms");
 
     if (frames.is_empty()) {
         Ref<Image> black = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
@@ -133,35 +127,59 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         return black;
     }
 
-    uint64_t t_comp = Time::get_singleton()->get_ticks_msec();
-    Ref<Image> result = composite_frames(frames, p_width, p_height);
-    UtilityFunctions::print("[TimelineRenderer] COMPOSITE took ", Time::get_singleton()->get_ticks_msec() - t_comp, " ms");
+    if (frames.size() == 1) {
+        return frames[0];
+    }
+
+    return composite_frames_fast(frames, p_width, p_height);
+}
+
+Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time, int p_width, int p_height) {
+    Ref<Image> img = render_video_frame(p_time, p_width, p_height);
+    if (img.is_null()) {
+        return Ref<ImageTexture>();
+    }
+
+    String cache_key = "black";
+    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
+    for (int i = 0; i < video_tracks.size(); i++) {
+        Ref<TimelineClip> clip = video_tracks[i]->get_clip_at_time(p_time);
+        if (clip.is_valid()) {
+            cache_key = clip->get_source_path();
+            break;
+        }
+    }
+
+    Ref<ImageTexture> tex = get_or_create_texture(cache_key, p_width, p_height);
+    tex->update(img);
+    return tex;
+}
+
+Ref<Image> TimelineRenderer::composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height) {
+    if (p_frames.is_empty()) {
+        return Ref<Image>();
+    }
+
+    Ref<Image> result = p_frames[0]->duplicate();
+    if (p_frames.size() == 1) {
+        return result;
+    }
+
+    for (int i = 1; i < p_frames.size(); i++) {
+        Ref<Image> top = p_frames[i];
+        if (top.is_null()) continue;
+        result->blit_rect(top, Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
+    }
 
     return result;
 }
 
 Ref<Image> TimelineRenderer::composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height) {
-    if (p_frames.is_empty()) {
-        return Ref<Image>();
+    Vector<Ref<Image>> vec;
+    for (int i = 0; i < p_frames.size(); i++) {
+        vec.push_back(p_frames[i]);
     }
-
-    Ref<Image> result = p_frames[0];
-
-    for (int i = 1; i < p_frames.size(); i++) {
-        Ref<Image> top = p_frames[i];
-        if (top.is_null()) continue;
-
-        for (int y = 0; y < p_height; y++) {
-            for (int x = 0; x < p_width; x++) {
-                Color c = top->get_pixel(x, y);
-                if (c.a > 0.0) {
-                    result->set_pixel(x, y, c);
-                }
-            }
-        }
-    }
-
-    return result;
+    return composite_frames_fast(vec, p_width, p_height);
 }
 
 PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_samples, int p_sample_rate) {
@@ -316,5 +334,6 @@ void TimelineRenderer::clear_cache() {
         }
     }
     decoders.clear();
+    texture_cache.clear();
     last_render_time = -1.0;
 }
