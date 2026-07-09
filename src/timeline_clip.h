@@ -11,7 +11,7 @@ class TimelineClip : public RefCounted {
 
 private:
     String source_path;
-    String proxy_path;              // <-- ADDED: 480p preview file
+    String proxy_path;
     double timeline_start = 0.0;
     double source_in_point = 0.0;
     double source_out_point = 0.0;
@@ -24,9 +24,9 @@ public:
     void set_source_path(const String &p_path);
     String get_source_path() const;
 
-    void set_proxy_path(const String &p_path);   // <-- ADDED
-    String get_proxy_path() const;               // <-- ADDED
-    String get_effective_path(bool p_use_proxy) const; // <-- ADDED
+    void set_proxy_path(const String &p_path);
+    String get_proxy_path() const;
+    String get_effective_path(bool p_use_proxy) const;
 
     void set_timeline_start(double p_time);
     double get_timeline_start() const;
