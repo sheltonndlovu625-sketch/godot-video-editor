@@ -56,7 +56,7 @@ ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 # ------------------------------------------------------------------
 if env["platform"] == "android":
     env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
-    env.Append(LIBS=["android", "log", "mediandk"])  # <-- added mediadnk
+    env.Append(LIBS=["android", "log"])
     if ffmpeg_path and os.path.exists(ffmpeg_lib):
         whole_libs = []
         for lib in ffmpeg_libs:
@@ -73,10 +73,7 @@ if env["platform"] == "android":
 
 elif env["platform"] == "ios":
     env.Append(CPPDEFINES=["IOS_ENABLED"])
-    # Use -all_load to force the linker to pull in all object files from static libs
-    # This prevents symbol stripping and ensures typeinfo is preserved
     env.Append(LINKFLAGS=["-all_load"])
-    # FFmpeg static libs first, then frameworks they depend on
     if ffmpeg_path and os.path.exists(ffmpeg_lib):
         for lib in ffmpeg_libs:
             lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
