@@ -7,7 +7,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
-#include <godot_cpp/variant/utility_function.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>  // <-- FIXED: added 's'
 
 extern "C" {
 #include <libavcodec/avcodec.h>
