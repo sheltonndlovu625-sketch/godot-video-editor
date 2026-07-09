@@ -60,7 +60,7 @@ bool TimelineRenderer::_needs_seek(double p_time) {
 }
 
 Ref<ImageTexture> TimelineRenderer::get_or_create_texture(const String &p_path, int p_width, int p_height) {
-    String key = p_path + ":" + String::num_int64(p_width) + "x" + String::num_int64(p_height);
+    String key = p_path + String(":") + String::num_int64(p_width) + String("x") + String::num_int64(p_height);
     if (texture_cache.has(key)) {
         return texture_cache[key];
     }
