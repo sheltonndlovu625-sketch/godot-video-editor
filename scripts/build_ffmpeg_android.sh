@@ -36,6 +36,7 @@ COMMON_FLAGS=(
     --disable-shared
     --enable-static
     --enable-pic
+    --disable-asm           # <-- ADDED: disable hand-written assembly (GNU asm incompatible with LLVM)
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -96,15 +97,13 @@ build_arch() {
     cd "$BUILD_DIR"
 
     local EXTRA_CFLAGS="-O3 -fPIC"
-    local ASM_FLAGS=""
 
     if [ "$ARCH" = "aarch64" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv8-a"
     elif [ "$ARCH" = "arm" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv7-a -mfpu=neon -mfloat-abi=softfp"
-        ASM_FLAGS="--disable-armv5te --disable-armv6 --disable-armv6t2"
     elif [ "$ARCH" = "x86_64" ]; then
-        ASM_FLAGS="--disable-x86asm"
+        EXTRA_CFLAGS="$EXTRA_CFLAGS -march=x86-64-v2"
     fi
 
     "$SRC_DIR/configure" \
@@ -121,7 +120,6 @@ build_arch() {
         --sysroot="$TOOLCHAIN/sysroot" \
         --extra-cflags="$EXTRA_CFLAGS" \
         --extra-ldflags="-O3" \
-        $ASM_FLAGS \
         "${COMMON_FLAGS[@]}" || {
             echo "=== CONFIGURE FAILED for $ARCH ==="
             tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
