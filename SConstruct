@@ -56,7 +56,7 @@ ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 # ------------------------------------------------------------------
 if env["platform"] == "android":
     env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
-    env.Append(LIBS=["android", "log"])
+    env.Append(LIBS=["android", "log", "mediandk"])  # <-- added mediadnk
     if ffmpeg_path and os.path.exists(ffmpeg_lib):
         whole_libs = []
         for lib in ffmpeg_libs:
