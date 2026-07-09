@@ -45,9 +45,6 @@ COMMON_FLAGS=(
     --disable-zlib
     --disable-everything
 
-    --enable-jni
-    --enable-mediacodec
-
     --enable-avformat
     --enable-avcodec
     --enable-avutil
@@ -63,12 +60,6 @@ COMMON_FLAGS=(
     --enable-decoder=png
     --enable-decoder=mp3
     --enable-decoder=aac
-
-    --enable-decoder=h264_mediacodec
-    --enable-decoder=hevc_mediacodec
-    --enable-decoder=mpeg4_mediacodec
-    --enable-decoder=vp8_mediacodec
-    --enable-decoder=vp9_mediacodec
 
     --enable-encoder=mjpeg
     --enable-encoder=aac
