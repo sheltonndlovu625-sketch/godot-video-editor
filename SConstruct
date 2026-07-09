@@ -58,18 +58,18 @@ if env["platform"] == "android":
     env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
     env.Append(LIBS=["android", "log"])
     if ffmpeg_path and os.path.exists(ffmpeg_lib):
-        whole_libs = []
+        group_libs = []
         for lib in ffmpeg_libs:
             lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
             if os.path.exists(lib_path):
-                whole_libs.append(lib_path)
+                group_libs.append(lib_path)
             else:
                 print("ERROR: FFmpeg library not found: " + lib_path)
                 sys.exit(1)
-        if whole_libs:
-            env.Append(LINKFLAGS=["-Wl,--whole-archive"])
-            env.Append(LINKFLAGS=whole_libs)
-            env.Append(LINKFLAGS=["-Wl,--no-whole-archive"])
+        if group_libs:
+            env.Append(LINKFLAGS=["-Wl,--start-group"])
+            env.Append(LINKFLAGS=group_libs)
+            env.Append(LINKFLAGS=["-Wl,--end-group"])
 
 elif env["platform"] == "ios":
     env.Append(CPPDEFINES=["IOS_ENABLED"])
