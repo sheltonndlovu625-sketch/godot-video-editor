@@ -18,9 +18,8 @@ private:
     Ref<Timeline> timeline;
     Dictionary decoders;
     double last_render_time = -1.0;
-    bool preview_mode = false;          // <-- ADDED: uses proxy paths + skips audio decode
+    bool preview_mode = false;
 
-    // Reusable output texture instead of Dictionary cache
     Ref<ImageTexture> output_texture;
     int output_texture_w = 0;
     int output_texture_h = 0;
@@ -37,8 +36,8 @@ public:
     void set_timeline(const Ref<Timeline> &p_timeline);
     Ref<Timeline> get_timeline() const;
 
-    void set_preview_mode(bool p_preview);   // <-- ADDED
-    bool get_preview_mode() const;           // <-- ADDED
+    void set_preview_mode(bool p_preview);
+    bool get_preview_mode() const;
 
     Ref<Image> render_video_frame(double p_time, int p_width, int p_height);
     Ref<ImageTexture> render_video_frame_to_texture(double p_time, int p_width, int p_height);
