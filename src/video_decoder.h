@@ -54,9 +54,11 @@ private:
     int channels = 0;
     bool initialized = false;
     bool use_hwaccel = false;
+    bool skip_audio = false;  // <-- ADDED: preview mode skips audio decode
     enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
+    AVBufferRef *hw_device_ctx = nullptr;  // <-- ADDED
 
-    bool try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx);
+    bool try_hwaccel(const AVCodec **p_codec);
 
 protected:
     static void _bind_methods();
@@ -75,6 +77,9 @@ public:
     bool has_audio() const;
     void close();
     bool is_open() const;
+
+    void set_skip_audio(bool p_skip);  // <-- ADDED
+    bool get_skip_audio() const;       // <-- ADDED
 
     VideoDecoder();
     ~VideoDecoder();
