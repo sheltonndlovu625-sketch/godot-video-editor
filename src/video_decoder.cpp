@@ -54,7 +54,7 @@ bool VideoDecoder::try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx) {
         }
         if (hw_codec) {
             *p_codec = hw_codec;
-            UtilityFunctions::print("[VideoDecoder] Using Android MediaCodec hardware decoder");
+            UtilityFunctions::print("[VideoDecoder] Using Android MediaCodec hardware decoder: ", hw_codec->name);
             return true;
         }
     #elif defined(__APPLE__)
@@ -64,11 +64,9 @@ bool VideoDecoder::try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx) {
         }
         if (hw_codec) {
             *p_codec = hw_codec;
-            UtilityFunctions::print("[VideoDecoder] Using VideoToolbox hardware decoder");
+            UtilityFunctions::print("[VideoDecoder] Using VideoToolbox hardware decoder: ", hw_codec->name);
             return true;
         }
-    #elif defined(__linux__)
-    #elif defined(_WIN32)
     #endif
     return false;
 }
@@ -120,7 +118,7 @@ bool VideoDecoder::open(String p_path) {
     }
 
     const AVCodec *hw_codec = nullptr;
-    if (try_hwaccel(&hw_codec, nullptr)) {
+    if (try_hwaccel(&hw_codec, video_codec_ctx)) {
         vcodec = hw_codec;
         use_hwaccel = true;
     }
@@ -235,9 +233,6 @@ bool VideoDecoder::open(String p_path) {
     UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", original_width, "x", original_height, ")");
     UtilityFunctions::print("[VideoDecoder] Video stream index: ", video_stream_index, " Audio stream index: ", audio_stream_index);
     UtilityFunctions::print("[VideoDecoder] Hardware acceleration: ", use_hwaccel ? "YES" : "NO");
-    if (use_hwaccel) {
-        UtilityFunctions::print("[VideoDecoder] Hardware acceleration enabled");
-    }
     return true;
 }
 
@@ -273,7 +268,7 @@ Ref<Image> VideoDecoder::read_video_frame() {
 
             AVFrame *frame_to_convert = video_frame;
 
-            if (use_hwaccel && video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+            if (use_hwaccel && video_frame->format == AV_PIX_FMT_MEDIACODEC) {
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
                 if (ret < 0) {
                     log_av_error("Hardware frame transfer failed", ret);
@@ -346,7 +341,7 @@ Ref<Image> VideoDecoder::read_video_frame() {
             }
 
             AVFrame *frame_to_convert = video_frame;
-            if (use_hwaccel && video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+            if (use_hwaccel && video_frame->format == AV_PIX_FMT_MEDIACODEC) {
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
                 if (ret >= 0) {
                     frame_to_convert = hw_frame;
@@ -434,7 +429,7 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
             }
 
             AVFrame *frame_to_convert = video_frame;
-            if (use_hwaccel && video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+            if (use_hwaccel && video_frame->format == AV_PIX_FMT_MEDIACODEC) {
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
                 if (ret >= 0) {
                     frame_to_convert = hw_frame;
