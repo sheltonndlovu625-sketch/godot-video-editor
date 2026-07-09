@@ -282,10 +282,15 @@ Ref<Image> VideoDecoder::read_video_frame() {
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
             uint64_t sws_ms = Time::get_singleton()->get_ticks_msec() - t_sws;
 
-            int img_size = rgba_frame->linesize[0] * video_codec_ctx->height;
+            // FIX: row-by-row copy to strip FFmpeg line padding
             PackedByteArray bytes;
-            bytes.resize(img_size);
-            memcpy(bytes.ptrw(), rgba_frame->data[0], img_size);
+            bytes.resize(video_codec_ctx->width * video_codec_ctx->height * 4);
+            uint8_t *dst = bytes.ptrw();
+            for (int y = 0; y < video_codec_ctx->height; y++) {
+                memcpy(dst + y * video_codec_ctx->width * 4,
+                       rgba_frame->data[0] + y * rgba_frame->linesize[0],
+                       video_codec_ctx->width * 4);
+            }
 
             result = Image::create_from_data(
                 video_codec_ctx->width, video_codec_ctx->height,
@@ -351,10 +356,15 @@ Ref<Image> VideoDecoder::read_video_frame() {
             sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
 
-            int img_size = rgba_frame->linesize[0] * video_codec_ctx->height;
+            // FIX: row-by-row copy to strip FFmpeg line padding
             PackedByteArray bytes;
-            bytes.resize(img_size);
-            memcpy(bytes.ptrw(), rgba_frame->data[0], img_size);
+            bytes.resize(video_codec_ctx->width * video_codec_ctx->height * 4);
+            uint8_t *dst = bytes.ptrw();
+            for (int y = 0; y < video_codec_ctx->height; y++) {
+                memcpy(dst + y * video_codec_ctx->width * 4,
+                       rgba_frame->data[0] + y * rgba_frame->linesize[0],
+                       video_codec_ctx->width * 4);
+            }
 
             result = Image::create_from_data(
                 video_codec_ctx->width, video_codec_ctx->height,
@@ -439,10 +449,15 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
             sws_scale(sws_ctx_scaled, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, scaled_rgba_frame->data, scaled_rgba_frame->linesize);
 
-            int img_size = scaled_rgba_frame->linesize[0] * p_height;
+            // FIX: row-by-row copy to strip FFmpeg line padding
             PackedByteArray bytes;
-            bytes.resize(img_size);
-            memcpy(bytes.ptrw(), scaled_rgba_frame->data[0], img_size);
+            bytes.resize(p_width * p_height * 4);
+            uint8_t *dst = bytes.ptrw();
+            for (int y = 0; y < p_height; y++) {
+                memcpy(dst + y * p_width * 4,
+                       scaled_rgba_frame->data[0] + y * scaled_rgba_frame->linesize[0],
+                       p_width * 4);
+            }
 
             result = Image::create_from_data(p_width, p_height, false, Image::FORMAT_RGBA8, bytes);
             break;
