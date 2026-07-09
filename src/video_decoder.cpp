@@ -47,16 +47,7 @@ void VideoDecoder::set_skip_audio(bool p_skip) { skip_audio = p_skip; }
 bool VideoDecoder::get_skip_audio() const { return skip_audio; }
 
 bool VideoDecoder::try_hwaccel(const AVCodec **p_codec) {
-#if defined(__ANDROID__)
-    const AVCodec *hw = avcodec_find_decoder_by_name("h264_mediacodec");
-    if (!hw) hw = avcodec_find_decoder_by_name("hevc_mediacodec");
-    if (hw) {
-        *p_codec = hw;
-        hw_device_type = AV_HWDEVICE_TYPE_MEDIACODEC;
-        UtilityFunctions::print("[VideoDecoder] Using Android MediaCodec: ", hw->name);
-        return true;
-    }
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
     const AVCodec *hw = avcodec_find_decoder_by_name("h264_videotoolbox");
     if (!hw) hw = avcodec_find_decoder_by_name("hevc_videotoolbox");
     if (hw) {
@@ -66,6 +57,7 @@ bool VideoDecoder::try_hwaccel(const AVCodec **p_codec) {
         return true;
     }
 #endif
+    // Android MediaCodec disabled — use ARM NEON software decode
     return false;
 }
 
