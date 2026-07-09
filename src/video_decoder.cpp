@@ -134,7 +134,6 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
-    // Setup hardware device context BEFORE opening codec
     if (use_hwaccel && hw_device_type != AV_HWDEVICE_TYPE_NONE) {
         ret = av_hwdevice_ctx_create(&hw_device_ctx, hw_device_type, nullptr, nullptr, 0);
         if (ret >= 0 && hw_device_ctx) {
@@ -143,7 +142,6 @@ bool VideoDecoder::open(String p_path) {
             UtilityFunctions::push_warning("[VideoDecoder] hwdevice init failed, falling back to software");
             use_hwaccel = false;
             hw_device_type = AV_HWDEVICE_TYPE_NONE;
-            // Restore software codec
             vcodec = avcodec_find_decoder(vstream->codecpar->codec_id);
             avcodec_free_context(&video_codec_ctx);
             video_codec_ctx = avcodec_alloc_context3(vcodec);
@@ -185,7 +183,6 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
-    // Audio setup (skip if preview mode)
     if (!skip_audio && audio_stream_index >= 0) {
         AVStream *astream = format_ctx->streams[audio_stream_index];
         const AVCodec *acodec = avcodec_find_decoder(astream->codecpar->codec_id);
@@ -236,11 +233,10 @@ bool VideoDecoder::open(String p_path) {
     initialized = true;
     current_time = 0.0;
     UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", original_width, "x", original_height, ")");
-    UtilityFunctions::print("[VideoDecoder] HW accel: ", use_hwaccel ? "YES" : "NO");
+    UtilityFunctions::print("[VideoDecoder] HW accel: ", String(use_hwaccel ? "YES" : "NO"));
     return true;
 }
 
-// Helper: copy FFmpeg padded rows into tight PackedByteArray
 static void copy_rgba_frame_to_bytes(AVFrame *p_frame, int p_width, int p_height, PackedByteArray &r_bytes) {
     r_bytes.resize(p_width * p_height * 4);
     uint8_t *dst = r_bytes.ptrw();
@@ -320,7 +316,6 @@ Ref<Image> VideoDecoder::read_video_frame() {
         }
     }
 
-    // Flush remaining video frame
     if (result.is_null()) {
         avcodec_send_packet(video_codec_ctx, nullptr);
         int ret = avcodec_receive_frame(video_codec_ctx, video_frame);
@@ -454,7 +449,7 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
     if (!initialized || audio_stream_index < 0 || !audio_codec_ctx || skip_audio) return result;
 
     if (audio_buffer.size() > 0) {
-        int to_return = MIN(p_max_samples, audio_buffer.size());
+        int to_return = p_max_samples < audio_buffer.size() ? p_max_samples : audio_buffer.size();
         result.resize(to_return);
         memcpy(result.ptrw(), audio_buffer.ptr(), to_return * sizeof(float));
         if (to_return < audio_buffer.size()) {
@@ -515,7 +510,7 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
     av_packet_free(&pkt);
 
     if (audio_buffer.size() > 0) {
-        int to_return = MIN(p_max_samples, audio_buffer.size());
+        int to_return = p_max_samples < audio_buffer.size() ? p_max_samples : audio_buffer.size();
         int result_offset = result.size();
         result.resize(result_offset + to_return);
         memcpy(result.ptrw() + result_offset, audio_buffer.ptr(), to_return * sizeof(float));
@@ -604,7 +599,6 @@ void VideoDecoder::close() {
 
 bool VideoDecoder::is_open() const { return initialized; }
 
-// Typeinfo helper
 #include <typeinfo>
 namespace godot {
     struct VideoDecoderTypeinfoHelper {
