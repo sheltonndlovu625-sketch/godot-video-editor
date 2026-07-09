@@ -3,6 +3,7 @@
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
+#include <climits>
 
 using namespace godot;
 
@@ -35,13 +36,19 @@ Ref<Timeline> TimelineRenderer::get_timeline() const { return timeline; }
 void TimelineRenderer::set_preview_mode(bool p_preview) {
     if (preview_mode != p_preview) {
         preview_mode = p_preview;
-        clear_cache(); // decoders must reopen with/without audio
+        clear_cache();
     }
 }
 bool TimelineRenderer::get_preview_mode() const { return preview_mode; }
 
 Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path, bool p_skip_audio) {
-    String key = p_path + (p_skip_audio ? "|noaudio" : "|audio");
+    String key = p_path;
+    if (p_skip_audio) {
+        key += "|noaudio";
+    } else {
+        key += "|audio";
+    }
+
     if (decoders.has(key)) {
         return decoders[key];
     }
@@ -62,7 +69,6 @@ bool TimelineRenderer::_needs_seek(double p_time) {
     if (last_render_time < 0.0) return true;
     double frame_duration = 1.0 / timeline->get_frame_rate();
     double delta = Math::abs(p_time - last_render_time);
-    // Only seek if we jump backwards or forward more than 1 frame
     return p_time < last_render_time || delta > frame_duration * 1.5;
 }
 
@@ -78,7 +84,6 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         return black;
     }
 
-    // Find layer range without allocating a new Vector
     int min_layer = INT_MAX;
     int max_layer = INT_MIN;
     for (int i = 0; i < video_tracks.size(); i++) {
@@ -102,7 +107,7 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
             double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
 
             String path = clip->get_effective_path(preview_mode);
-            Ref<VideoDecoder> decoder = get_decoder(path, preview_mode); // skip audio in preview
+            Ref<VideoDecoder> decoder = get_decoder(path, preview_mode);
             if (decoder.is_null()) continue;
 
             if (seek) decoder->seek(source_time);
@@ -130,7 +135,6 @@ Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time,
     Ref<Image> img = render_video_frame(p_time, p_width, p_height);
     if (img.is_null()) return Ref<ImageTexture>();
 
-    // Reuse one texture object — only recreate if size changes
     if (output_texture.is_null() || output_texture_w != p_width || output_texture_h != p_height) {
         output_texture.instantiate();
         output_texture->set_image(img);
@@ -158,7 +162,7 @@ Ref<Image> TimelineRenderer::composite_frames_fast(const Vector<Ref<Image>> &p_f
 
 PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_samples, int p_sample_rate) {
     PackedFloat32Array result;
-    if (timeline.is_null() || p_num_samples <= 0 || preview_mode) return result; // no audio in preview
+    if (timeline.is_null() || p_num_samples <= 0 || preview_mode) return result;
 
     bool seek = _needs_seek(p_time);
     TypedArray<TimelineTrack> audio_tracks = timeline->get_audio_tracks();
@@ -222,7 +226,6 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
         return false;
     }
 
-    // Force full quality for export
     bool was_preview = preview_mode;
     set_preview_mode(false);
 
