@@ -1,6 +1,6 @@
 #include "video_decoder.h"
 #include <godot_cpp/classes/project_settings.hpp>
-#include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/time.hpp>
 
 using namespace godot;
 
@@ -246,7 +246,7 @@ Ref<Image> VideoDecoder::read_video_frame() {
         return Ref<Image>();
     }
 
-    uint64_t t0 = OS::get_singleton()->get_ticks_usec();
+    uint64_t t0 = Time::get_singleton()->get_ticks_msec();
     int packet_count = 0;
 
     AVPacket *pkt = av_packet_alloc();
@@ -282,10 +282,10 @@ Ref<Image> VideoDecoder::read_video_frame() {
                 frame_to_convert = hw_frame;
             }
 
-            uint64_t t_sws = OS::get_singleton()->get_ticks_usec();
+            uint64_t t_sws = Time::get_singleton()->get_ticks_msec();
             sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
-            uint64_t sws_ms = (OS::get_singleton()->get_ticks_usec() - t_sws) / 1000;
+            uint64_t sws_ms = Time::get_singleton()->get_ticks_msec() - t_sws;
 
             int img_size = rgba_frame->linesize[0] * video_codec_ctx->height;
             PackedByteArray bytes;
@@ -297,7 +297,7 @@ Ref<Image> VideoDecoder::read_video_frame() {
                 false, Image::FORMAT_RGBA8, bytes
             );
 
-            uint64_t total_ms = (OS::get_singleton()->get_ticks_usec() - t0) / 1000;
+            uint64_t total_ms = Time::get_singleton()->get_ticks_msec() - t0;
             UtilityFunctions::print("[VideoDecoder] read_video_frame: ", packet_count, " packets, sws=", sws_ms, "ms, total=", total_ms, "ms");
             break;
         } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx) {
@@ -369,7 +369,7 @@ Ref<Image> VideoDecoder::read_video_frame() {
     }
 
     av_packet_free(&pkt);
-    uint64_t total_ms = (OS::get_singleton()->get_ticks_usec() - t0) / 1000;
+    uint64_t total_ms = Time::get_singleton()->get_ticks_msec() - t0;
     UtilityFunctions::print("[VideoDecoder] read_video_frame EXIT: total=", total_ms, "ms, packets=", packet_count);
     return result;
 }
@@ -586,7 +586,7 @@ bool VideoDecoder::seek(double p_time_seconds) {
         return false;
     }
 
-    uint64_t t0 = OS::get_singleton()->get_ticks_usec();
+    uint64_t t0 = Time::get_singleton()->get_ticks_msec();
 
     int64_t ts = (int64_t)(p_time_seconds * AV_TIME_BASE);
     int ret = avformat_seek_file(format_ctx, -1, INT64_MIN, ts, INT64_MAX, 0);
@@ -594,7 +594,7 @@ bool VideoDecoder::seek(double p_time_seconds) {
         ret = av_seek_frame(format_ctx, -1, ts, 0);
     }
 
-    uint64_t seek_ms = (OS::get_singleton()->get_ticks_usec() - t0) / 1000;
+    uint64_t seek_ms = Time::get_singleton()->get_ticks_msec() - t0;
 
     if (ret < 0) {
         log_av_error("Seek failed", ret);
