@@ -164,16 +164,28 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
+    // Use a faster scaler by default for playback performance
     sws_ctx = sws_getContext(
         original_width, original_height, video_codec_ctx->pix_fmt,
         original_width, original_height, AV_PIX_FMT_RGBA,
-        SWS_BILINEAR, nullptr, nullptr, nullptr
+        SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
     );
     if (!sws_ctx) {
         UtilityFunctions::push_error("[VideoDecoder] Could not create scaler context");
         close();
         return false;
     }
+
+    // Preallocate packet and video byte buffer to avoid per-frame allocations
+    pkt = av_packet_alloc();
+    if (!pkt) {
+        UtilityFunctions::push_error("[VideoDecoder] Could not allocate AVPacket");
+        close();
+        return false;
+    }
+    // Pre-size the PackedByteArray to the expected frame size (width*height*4)
+    int expected_size = original_width * original_height * 4;
+    video_bytes.resize(expected_size);
 
     if (!skip_audio && audio_stream_index >= 0) {
         AVStream *astream = format_ctx->streams[audio_stream_index];
@@ -229,22 +241,23 @@ bool VideoDecoder::open(String p_path) {
     return true;
 }
 
-static void copy_rgba_frame_to_bytes(AVFrame *p_frame, int p_width, int p_height, PackedByteArray &r_bytes) {
-    r_bytes.resize(p_width * p_height * 4);
+static void copy_rgba_frame_to_bytes_reuse(AVFrame *p_frame, int p_width, int p_height, PackedByteArray &r_bytes) {
+    // Assumes r_bytes already sized to p_width * p_height * 4
     uint8_t *dst = r_bytes.ptrw();
+    int src_linesize = p_frame->linesize[0];
+    uint8_t *src = p_frame->data[0];
+    int row_bytes = p_width * 4;
     for (int y = 0; y < p_height; y++) {
-        memcpy(dst + y * p_width * 4,
-               p_frame->data[0] + y * p_frame->linesize[0],
-               p_width * 4);
+        memcpy(dst + y * row_bytes, src + y * src_linesize, row_bytes);
     }
 }
 
 Ref<Image> VideoDecoder::read_video_frame() {
     if (!initialized || video_stream_index < 0) return Ref<Image>();
 
-    AVPacket *pkt = av_packet_alloc();
     Ref<Image> result;
 
+    // Use the preallocated packet (pkt). av_read_frame will fill it.
     while (av_read_frame(format_ctx, pkt) >= 0) {
         if (pkt->stream_index == video_stream_index) {
             int ret = avcodec_send_packet(video_codec_ctx, pkt);
@@ -269,12 +282,17 @@ Ref<Image> VideoDecoder::read_video_frame() {
             sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
 
-            PackedByteArray bytes;
-            copy_rgba_frame_to_bytes(rgba_frame, video_codec_ctx->width, video_codec_ctx->height, bytes);
+            // Reuse the preallocated PackedByteArray to avoid per-frame allocations
+            int w = video_codec_ctx->width;
+            int h = video_codec_ctx->height;
+            int needed = w * h * 4;
+            if (video_bytes.size() != needed) video_bytes.resize(needed);
+            copy_rgba_frame_to_bytes_reuse(rgba_frame, w, h, video_bytes);
 
+            // Create Image from the reused byte array (Image will copy data internally)
             result = Image::create_from_data(
-                video_codec_ctx->width, video_codec_ctx->height,
-                false, Image::FORMAT_RGBA8, bytes
+                w, h,
+                false, Image::FORMAT_RGBA8, video_bytes
             );
             break;
         } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx && !skip_audio) {
@@ -324,17 +342,21 @@ Ref<Image> VideoDecoder::read_video_frame() {
             sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, rgba_frame->data, rgba_frame->linesize);
 
-            PackedByteArray bytes;
-            copy_rgba_frame_to_bytes(rgba_frame, video_codec_ctx->width, video_codec_ctx->height, bytes);
+            int w = video_codec_ctx->width;
+            int h = video_codec_ctx->height;
+            int needed = w * h * 4;
+            if (video_bytes.size() != needed) video_bytes.resize(needed);
+            copy_rgba_frame_to_bytes_reuse(rgba_frame, w, h, video_bytes);
 
             result = Image::create_from_data(
-                video_codec_ctx->width, video_codec_ctx->height,
-                false, Image::FORMAT_RGBA8, bytes
+                w, h,
+                false, Image::FORMAT_RGBA8, video_bytes
             );
         }
     }
 
-    av_packet_free(&pkt);
+    // pkt remains allocated and reused; ensure it's unreferenced
+    av_packet_unref(pkt);
     return result;
 }
 
@@ -369,7 +391,6 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
         scaled_height = p_height;
     }
 
-    AVPacket *pkt = av_packet_alloc();
     Ref<Image> result;
 
     while (av_read_frame(format_ctx, pkt) >= 0) {
@@ -396,10 +417,11 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
             sws_scale(sws_ctx_scaled, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, scaled_rgba_frame->data, scaled_rgba_frame->linesize);
 
-            PackedByteArray bytes;
-            copy_rgba_frame_to_bytes(scaled_rgba_frame, p_width, p_height, bytes);
+            int needed = p_width * p_height * 4;
+            if (video_bytes.size() != needed) video_bytes.resize(needed);
+            copy_rgba_frame_to_bytes_reuse(scaled_rgba_frame, p_width, p_height, video_bytes);
 
-            result = Image::create_from_data(p_width, p_height, false, Image::FORMAT_RGBA8, bytes);
+            result = Image::create_from_data(p_width, p_height, false, Image::FORMAT_RGBA8, video_bytes);
             break;
         } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx && !skip_audio) {
             int ret = avcodec_send_packet(audio_codec_ctx, pkt);
@@ -432,7 +454,7 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
         }
     }
 
-    av_packet_free(&pkt);
+    av_packet_unref(pkt);
     return result;
 }
 
@@ -455,7 +477,6 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
         p_max_samples -= to_return;
     }
 
-    AVPacket *pkt = av_packet_alloc();
     while (audio_buffer.size() < p_max_samples && av_read_frame(format_ctx, pkt) >= 0) {
         if (pkt->stream_index == audio_stream_index) {
             int ret = avcodec_send_packet(audio_codec_ctx, pkt);
@@ -499,7 +520,7 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
         }
     }
 
-    av_packet_free(&pkt);
+    av_packet_unref(pkt);
 
     if (audio_buffer.size() > 0) {
         int to_return = p_max_samples < audio_buffer.size() ? p_max_samples : audio_buffer.size();
@@ -571,9 +592,14 @@ void VideoDecoder::close() {
 
     if (hw_device_ctx) { av_buffer_unref(&hw_device_ctx); hw_device_ctx = nullptr; }
 
+    if (pkt) { av_packet_free(&pkt); pkt = nullptr; }
+
     if (format_ctx) {
         avformat_close_input(&format_ctx);
     }
+
+    // clear reusable byte buffer
+    video_bytes.resize(0);
 
     initialized = false;
     use_hwaccel = false;
