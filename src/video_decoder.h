@@ -58,6 +58,10 @@ private:
     enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
     AVBufferRef *hw_device_ctx = nullptr;
 
+    // Reusable packet and byte buffer to avoid per-frame allocations
+    AVPacket *pkt = nullptr;
+    PackedByteArray video_bytes;
+
     bool try_hwaccel(const AVCodec **p_codec);
 
 protected:
