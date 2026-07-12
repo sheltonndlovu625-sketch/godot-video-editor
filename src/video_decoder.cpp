@@ -20,6 +20,18 @@ namespace {
         av_strerror(errnum, errbuf, sizeof(errbuf));
         UtilityFunctions::push_error(String("[VideoDecoder] ") + prefix + ": " + errbuf);
     }
+
+    // ------------------------------------------------------------------
+    // Hardware format callback: tell FFmpeg we accept hw pixel formats
+    // ------------------------------------------------------------------
+    static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts) {
+        const enum AVPixelFormat *p;
+        for (p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
+            if (*p == AV_PIX_FMT_MEDIACODEC) return *p;      // Android
+            if (*p == AV_PIX_FMT_VIDEOTOOLBOX) return *p;     // iOS / macOS
+        }
+        return AV_PIX_FMT_NONE;
+    }
 } // anonymous namespace
 
 void VideoDecoder::_bind_methods() {
@@ -44,31 +56,6 @@ VideoDecoder::~VideoDecoder() {
     if (initialized) {
         close();
     }
-}
-
-bool VideoDecoder::try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx) {
-    #if defined(__ANDROID__)
-        const AVCodec *hw_codec = avcodec_find_decoder_by_name("h264_mediacodec");
-        if (!hw_codec) {
-            hw_codec = avcodec_find_decoder_by_name("hevc_mediacodec");
-        }
-        if (hw_codec) {
-            *p_codec = hw_codec;
-            UtilityFunctions::print("[VideoDecoder] Using Android MediaCodec hardware decoder: ", hw_codec->name);
-            return true;
-        }
-    #elif defined(__APPLE__)
-        const AVCodec *hw_codec = avcodec_find_decoder_by_name("h264_videotoolbox");
-        if (!hw_codec) {
-            hw_codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
-        }
-        if (hw_codec) {
-            *p_codec = hw_codec;
-            UtilityFunctions::print("[VideoDecoder] Using VideoToolbox hardware decoder: ", hw_codec->name);
-            return true;
-        }
-    #endif
-    return false;
 }
 
 bool VideoDecoder::open(String p_path) {
@@ -117,17 +104,32 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
+    // ------------------------------------------------------------------
+    // Try hardware decoder BEFORE allocating context
+    // ------------------------------------------------------------------
     const AVCodec *hw_codec = nullptr;
-    if (try_hwaccel(&hw_codec, video_codec_ctx)) {
-        vcodec = hw_codec;
-        use_hwaccel = true;
-    }
+    #if defined(__ANDROID__)
+        hw_codec = avcodec_find_decoder_by_name("h264_mediacodec");
+        if (!hw_codec) hw_codec = avcodec_find_decoder_by_name("hevc_mediacodec");
+    #elif defined(__APPLE__)
+        hw_codec = avcodec_find_decoder_by_name("h264_videotoolbox");
+        if (!hw_codec) hw_codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
+    #endif
 
-    video_codec_ctx = avcodec_alloc_context3(vcodec);
+    const AVCodec *selected_codec = hw_codec ? hw_codec : vcodec;
+    use_hwaccel = (hw_codec != nullptr);
+
+    video_codec_ctx = avcodec_alloc_context3(selected_codec);
     if (!video_codec_ctx) {
         UtilityFunctions::push_error("[VideoDecoder] Could not allocate video codec context");
         avformat_close_input(&format_ctx);
         return false;
+    }
+
+    // CRITICAL: set hw format callback so FFmpeg outputs hw frames
+    if (use_hwaccel) {
+        video_codec_ctx->get_format = get_hw_format;
+        UtilityFunctions::print("[VideoDecoder] Selected HW decoder: ", selected_codec->name);
     }
 
     ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
@@ -137,7 +139,7 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
-    ret = avcodec_open2(video_codec_ctx, vcodec, nullptr);
+    ret = avcodec_open2(video_codec_ctx, selected_codec, nullptr);
     if (ret < 0) {
         log_av_error("Could not open video codec", ret);
         close();
@@ -150,7 +152,7 @@ bool VideoDecoder::open(String p_path) {
     video_frame = av_frame_alloc();
     hw_frame = av_frame_alloc();
 
-    // Zero-copy: persistent native-size images (double buffered)
+    // Persistent native-size images (double buffered)
     for (int i = 0; i < 2; i++) {
         native_buffers[i] = Image::create(original_width, original_height, false, Image::FORMAT_RGBA8);
     }
@@ -264,7 +266,8 @@ Ref<Image> VideoDecoder::read_video_frame() {
 
             AVFrame *frame_to_convert = video_frame;
 
-            if (use_hwaccel && video_frame->format == AV_PIX_FMT_MEDIACODEC) {
+            // FIX: handle both Android (MEDIACODEC) and iOS/macOS (VIDEOTOOLBOX)
+            if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
                 if (ret < 0) {
                     log_av_error("Hardware frame transfer failed", ret);
@@ -333,7 +336,7 @@ Ref<Image> VideoDecoder::read_video_frame() {
             }
 
             AVFrame *frame_to_convert = video_frame;
-            if (use_hwaccel && video_frame->format == AV_PIX_FMT_MEDIACODEC) {
+            if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
                 if (ret >= 0) {
                     frame_to_convert = hw_frame;
@@ -412,7 +415,8 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
             }
 
             AVFrame *frame_to_convert = video_frame;
-            if (use_hwaccel && video_frame->format == AV_PIX_FMT_MEDIACODEC) {
+            // FIX: handle both Android and iOS hw formats
+            if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
                 if (ret >= 0) {
                     frame_to_convert = hw_frame;
