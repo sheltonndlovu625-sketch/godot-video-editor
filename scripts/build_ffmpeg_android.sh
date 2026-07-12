@@ -63,7 +63,8 @@ COMMON_FLAGS=(
     --enable-decoder=mp3
     --enable-decoder=aac
 
-    # FIX: Enable MediaCodec hardware decoder
+    # FIX: Enable MediaCodec hardware decoder (requires --enable-jni)
+    --enable-jni
     --enable-mediacodec
     --enable-decoder=h264_mediacodec
     --enable-decoder=hevc_mediacodec
@@ -116,7 +117,6 @@ build_arch() {
         ASM_FLAGS="--disable-x86asm"
     fi
 
-    # FIX: Link mediandk so FFmpeg can call AMediaCodec at runtime
     "$SRC_DIR/configure" \
         --prefix="$OUT_DIR" \
         --arch="$ARCH" \
