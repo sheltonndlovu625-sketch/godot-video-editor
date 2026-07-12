@@ -60,9 +60,10 @@ private:
     int channels = 0;
     bool initialized = false;
     bool use_hwaccel = false;
+    bool eof_reached = false;
     enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
 
-    bool try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx);
+    Ref<Image> _decode_one_frame(int p_width, int p_height, SwsContext *p_sws, Ref<Image> p_target);
 
 protected:
     static void _bind_methods();
