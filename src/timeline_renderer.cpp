@@ -172,7 +172,8 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         preview_tex_w = p_width;
         preview_tex_h = p_height;
     } else {
-        rs->texture_2d_update(preview_texture_rid, img);
+        // FIX: Godot 4.4.1 texture_2d_update requires 3 arguments: RID, Image, layer
+        rs->texture_2d_update(preview_texture_rid, img, 0);
     }
     return preview_texture_rid;
 }
