@@ -21,18 +21,15 @@ namespace {
         UtilityFunctions::push_error(String("[VideoDecoder] ") + prefix + ": " + errbuf);
     }
 
-    // ------------------------------------------------------------------
-    // Hardware format callback: tell FFmpeg we accept hw pixel formats
-    // ------------------------------------------------------------------
     static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts) {
         const enum AVPixelFormat *p;
         for (p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
-            if (*p == AV_PIX_FMT_MEDIACODEC) return *p;      // Android
-            if (*p == AV_PIX_FMT_VIDEOTOOLBOX) return *p;     // iOS / macOS
+            if (*p == AV_PIX_FMT_MEDIACODEC) return *p;
+            if (*p == AV_PIX_FMT_VIDEOTOOLBOX) return *p;
         }
         return AV_PIX_FMT_NONE;
     }
-} // anonymous namespace
+}
 
 void VideoDecoder::_bind_methods() {
     ClassDB::bind_method(D_METHOD("open", "path"), &VideoDecoder::open);
@@ -51,12 +48,7 @@ void VideoDecoder::_bind_methods() {
 }
 
 VideoDecoder::VideoDecoder() {}
-
-VideoDecoder::~VideoDecoder() {
-    if (initialized) {
-        close();
-    }
-}
+VideoDecoder::~VideoDecoder() { if (initialized) close(); }
 
 bool VideoDecoder::open(String p_path) {
     String resolved_path = resolve_path(p_path);
@@ -66,13 +58,11 @@ bool VideoDecoder::open(String p_path) {
     int ret = avformat_open_input(&format_ctx, path_cstr, nullptr, nullptr);
     if (ret < 0) {
         log_av_error("avformat_open_input failed", ret);
-        UtilityFunctions::push_error("[VideoDecoder] Could not open input file: ", resolved_path);
         return false;
     }
 
     ret = avformat_find_stream_info(format_ctx, nullptr);
     if (ret < 0) {
-        log_av_error("Could not find stream info", ret);
         avformat_close_input(&format_ctx);
         return false;
     }
@@ -91,7 +81,6 @@ bool VideoDecoder::open(String p_path) {
     }
 
     if (video_stream_index < 0) {
-        UtilityFunctions::push_error("[VideoDecoder] No video stream found");
         avformat_close_input(&format_ctx);
         return false;
     }
@@ -99,14 +88,10 @@ bool VideoDecoder::open(String p_path) {
     AVStream *vstream = format_ctx->streams[video_stream_index];
     const AVCodec *vcodec = avcodec_find_decoder(vstream->codecpar->codec_id);
     if (!vcodec) {
-        UtilityFunctions::push_error("[VideoDecoder] Video codec not found");
         avformat_close_input(&format_ctx);
         return false;
     }
 
-    // ------------------------------------------------------------------
-    // Try hardware decoder BEFORE allocating context
-    // ------------------------------------------------------------------
     const AVCodec *hw_codec = nullptr;
     #if defined(__ANDROID__)
         hw_codec = avcodec_find_decoder_by_name("h264_mediacodec");
@@ -121,27 +106,22 @@ bool VideoDecoder::open(String p_path) {
 
     video_codec_ctx = avcodec_alloc_context3(selected_codec);
     if (!video_codec_ctx) {
-        UtilityFunctions::push_error("[VideoDecoder] Could not allocate video codec context");
         avformat_close_input(&format_ctx);
         return false;
     }
 
-    // CRITICAL: set hw format callback so FFmpeg outputs hw frames
     if (use_hwaccel) {
         video_codec_ctx->get_format = get_hw_format;
-        UtilityFunctions::print("[VideoDecoder] Selected HW decoder: ", selected_codec->name);
     }
 
     ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
     if (ret < 0) {
-        log_av_error("Could not copy video codec params", ret);
         close();
         return false;
     }
 
     ret = avcodec_open2(video_codec_ctx, selected_codec, nullptr);
     if (ret < 0) {
-        log_av_error("Could not open video codec", ret);
         close();
         return false;
     }
@@ -152,7 +132,6 @@ bool VideoDecoder::open(String p_path) {
     video_frame = av_frame_alloc();
     hw_frame = av_frame_alloc();
 
-    // Persistent native-size images (double buffered)
     for (int i = 0; i < 2; i++) {
         native_buffers[i] = Image::create(original_width, original_height, false, Image::FORMAT_RGBA8);
     }
@@ -164,7 +143,6 @@ bool VideoDecoder::open(String p_path) {
         SWS_BILINEAR, nullptr, nullptr, nullptr
     );
     if (!sws_ctx) {
-        UtilityFunctions::push_error("[VideoDecoder] Could not create scaler context");
         close();
         return false;
     }
@@ -172,52 +150,25 @@ bool VideoDecoder::open(String p_path) {
     if (audio_stream_index >= 0) {
         AVStream *astream = format_ctx->streams[audio_stream_index];
         const AVCodec *acodec = avcodec_find_decoder(astream->codecpar->codec_id);
-        if (!acodec) {
-            UtilityFunctions::push_warning("[VideoDecoder] Audio codec not found, continuing without audio");
-            audio_stream_index = -1;
-        } else {
+        if (acodec) {
             audio_codec_ctx = avcodec_alloc_context3(acodec);
-            if (!audio_codec_ctx) {
-                UtilityFunctions::push_warning("[VideoDecoder] Could not allocate audio codec context");
-                audio_stream_index = -1;
-            } else {
+            if (audio_codec_ctx) {
                 ret = avcodec_parameters_to_context(audio_codec_ctx, astream->codecpar);
-                if (ret < 0) {
-                    log_av_error("Could not copy audio codec params", ret);
-                    avcodec_free_context(&audio_codec_ctx);
-                    audio_stream_index = -1;
-                } else {
+                if (ret >= 0) {
                     ret = avcodec_open2(audio_codec_ctx, acodec, nullptr);
-                    if (ret < 0) {
-                        log_av_error("Could not open audio codec", ret);
-                        avcodec_free_context(&audio_codec_ctx);
-                        audio_stream_index = -1;
-                    } else {
+                    if (ret >= 0) {
                         sample_rate = audio_codec_ctx->sample_rate;
                         channels = audio_codec_ctx->ch_layout.nb_channels;
-
                         swr_ctx = swr_alloc();
-                        if (!swr_ctx) {
-                            UtilityFunctions::push_warning("[VideoDecoder] Could not allocate resampler");
-                            avcodec_free_context(&audio_codec_ctx);
-                            audio_stream_index = -1;
-                        } else {
+                        if (swr_ctx) {
                             AVChannelLayout dst_ch_layout;
                             av_channel_layout_default(&dst_ch_layout, channels);
-
                             ret = swr_alloc_set_opts2(&swr_ctx,
                                 &dst_ch_layout, AV_SAMPLE_FMT_FLT, sample_rate,
                                 &audio_codec_ctx->ch_layout, audio_codec_ctx->sample_fmt, sample_rate,
                                 0, nullptr);
-
-                            if (ret < 0 || swr_init(swr_ctx) < 0) {
-                                log_av_error("Could not init resampler", ret < 0 ? ret : AVERROR_UNKNOWN);
-                                swr_free(&swr_ctx);
-                                avcodec_free_context(&audio_codec_ctx);
-                                audio_stream_index = -1;
-                            } else {
+                            if (ret >= 0 && swr_init(swr_ctx) >= 0) {
                                 audio_frame = av_frame_alloc();
-                                UtilityFunctions::print("[VideoDecoder] Audio: ", channels, " channels @ ", sample_rate, " Hz");
                             }
                         }
                     }
@@ -228,108 +179,38 @@ bool VideoDecoder::open(String p_path) {
 
     initialized = true;
     current_time = 0.0;
-    UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", original_width, "x", original_height, ")");
-    UtilityFunctions::print("[VideoDecoder] Video stream index: ", video_stream_index, " Audio stream index: ", audio_stream_index);
-    UtilityFunctions::print("[VideoDecoder] Hardware acceleration: ", use_hwaccel ? "YES" : "NO");
+    eof_reached = false;
     return true;
 }
 
-Ref<Image> VideoDecoder::read_video_frame() {
-    if (!initialized || video_stream_index < 0) {
-        return Ref<Image>();
-    }
-
-    uint64_t t0 = Time::get_singleton()->get_ticks_msec();
-    int packet_count = 0;
-
+Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext *p_sws, Ref<Image> p_target) {
     AVPacket *pkt = av_packet_alloc();
     Ref<Image> result;
 
-    while (av_read_frame(format_ctx, pkt) >= 0) {
-        packet_count++;
+    while (true) {
+        int ret = av_read_frame(format_ctx, pkt);
+        if (ret < 0) {
+            // EOF or error
+            if (ret == AVERROR_EOF) {
+                eof_reached = true;
+            }
+            av_packet_free(&pkt);
+            break;
+        }
+
         if (pkt->stream_index == video_stream_index) {
-            int ret = avcodec_send_packet(video_codec_ctx, pkt);
+            ret = avcodec_send_packet(video_codec_ctx, pkt);
             av_packet_unref(pkt);
             if (ret < 0) continue;
 
             ret = avcodec_receive_frame(video_codec_ctx, video_frame);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) continue;
-            if (ret < 0) {
-                log_av_error("Error receiving video frame", ret);
+            if (ret == AVERROR(EAGAIN)) continue;
+            if (ret == AVERROR_EOF) {
+                eof_reached = true;
                 break;
             }
+            if (ret < 0) break;
 
-            if (video_frame->pts != AV_NOPTS_VALUE) {
-                AVStream *stream = format_ctx->streams[video_stream_index];
-                current_time = video_frame->pts * av_q2d(stream->time_base);
-            }
-
-            AVFrame *frame_to_convert = video_frame;
-
-            // FIX: handle both Android (MEDIACODEC) and iOS/macOS (VIDEOTOOLBOX)
-            if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
-                ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
-                if (ret < 0) {
-                    log_av_error("Hardware frame transfer failed", ret);
-                    continue;
-                }
-                frame_to_convert = hw_frame;
-            }
-
-            // ZERO-COPY: decode directly into persistent Image buffer
-            Ref<Image> target = native_buffers[native_write_idx];
-            uint8_t *dst_data[1] = { target->ptrw() };
-            int dst_linesize[1] = { original_width * 4 };
-
-            sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
-                video_codec_ctx->height, dst_data, dst_linesize);
-
-            result = target;
-            native_write_idx = 1 - native_write_idx;
-
-            uint64_t total_ms = Time::get_singleton()->get_ticks_msec() - t0;
-            UtilityFunctions::print("[VideoDecoder] read_video_frame: ", packet_count, " packets, total=", total_ms, "ms");
-            break;
-        } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx) {
-            int ret = avcodec_send_packet(audio_codec_ctx, pkt);
-            av_packet_unref(pkt);
-            if (ret < 0) continue;
-
-            while (ret >= 0) {
-                ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
-                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
-                if (ret < 0) break;
-
-                int out_samples = swr_get_out_samples(swr_ctx, audio_frame->nb_samples);
-                if (out_samples > 0) {
-                    uint8_t **dst_data = nullptr;
-                    int dst_linesize;
-                    av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, channels,
-                        out_samples, AV_SAMPLE_FMT_FLT, 0);
-
-                    int converted = swr_convert(swr_ctx, dst_data, out_samples,
-                        (const uint8_t **)audio_frame->data, audio_frame->nb_samples);
-
-                    if (converted > 0) {
-                        float *float_data = (float *)dst_data[0];
-                        int old_size = audio_buffer.size();
-                        audio_buffer.resize(old_size + converted * channels);
-                        memcpy(audio_buffer.ptrw() + old_size, float_data, converted * channels * sizeof(float));
-                    }
-
-                    av_freep(&dst_data[0]);
-                    av_freep(&dst_data);
-                }
-            }
-        } else {
-            av_packet_unref(pkt);
-        }
-    }
-
-    if (result.is_null()) {
-        avcodec_send_packet(video_codec_ctx, nullptr);
-        int ret = avcodec_receive_frame(video_codec_ctx, video_frame);
-        if (ret >= 0) {
             if (video_frame->pts != AV_NOPTS_VALUE) {
                 AVStream *stream = format_ctx->streams[video_stream_index];
                 current_time = video_frame->pts * av_q2d(stream->time_base);
@@ -343,37 +224,74 @@ Ref<Image> VideoDecoder::read_video_frame() {
                 }
             }
 
-            Ref<Image> target = native_buffers[native_write_idx];
-            uint8_t *dst_data[1] = { target->ptrw() };
-            int dst_linesize[1] = { original_width * 4 };
+            uint8_t *dst_data[1] = { p_target->ptrw() };
+            int dst_linesize[1] = { p_width * 4 };
 
-            sws_scale(sws_ctx, frame_to_convert->data, frame_to_convert->linesize, 0,
+            sws_scale(p_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
                 video_codec_ctx->height, dst_data, dst_linesize);
 
-            result = target;
-            native_write_idx = 1 - native_write_idx;
+            result = p_target;
+            break;
+
+        } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx) {
+            int ret = avcodec_send_packet(audio_codec_ctx, pkt);
+            av_packet_unref(pkt);
+            if (ret < 0) continue;
+            while (ret >= 0) {
+                ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
+                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
+                if (ret < 0) break;
+                int out_samples = swr_get_out_samples(swr_ctx, audio_frame->nb_samples);
+                if (out_samples > 0) {
+                    uint8_t **dst_data = nullptr;
+                    int dst_linesize;
+                    av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, channels,
+                        out_samples, AV_SAMPLE_FMT_FLT, 0);
+                    int converted = swr_convert(swr_ctx, dst_data, out_samples,
+                        (const uint8_t **)audio_frame->data, audio_frame->nb_samples);
+                    if (converted > 0) {
+                        float *float_data = (float *)dst_data[0];
+                        int old_size = audio_buffer.size();
+                        audio_buffer.resize(old_size + converted * channels);
+                        memcpy(audio_buffer.ptrw() + old_size, float_data, converted * channels * sizeof(float));
+                    }
+                    av_freep(&dst_data[0]);
+                    av_freep(&dst_data);
+                }
+            }
+        } else {
+            av_packet_unref(pkt);
         }
     }
 
     av_packet_free(&pkt);
-    uint64_t total_ms = Time::get_singleton()->get_ticks_msec() - t0;
-    UtilityFunctions::print("[VideoDecoder] read_video_frame EXIT: total=", total_ms, "ms, packets=", packet_count);
+    return result;
+}
+
+Ref<Image> VideoDecoder::read_video_frame() {
+    if (!initialized || video_stream_index < 0) return Ref<Image>();
+
+    if (eof_reached) {
+        seek(0.0);
+    }
+
+    Ref<Image> target = native_buffers[native_write_idx];
+    Ref<Image> result = _decode_one_frame(original_width, original_height, sws_ctx, target);
+    if (result.is_valid()) {
+        native_write_idx = 1 - native_write_idx;
+    }
     return result;
 }
 
 Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
-    if (!initialized || video_stream_index < 0) {
-        return Ref<Image>();
-    }
+    if (!initialized || video_stream_index < 0) return Ref<Image>();
 
     if (p_width == original_width && p_height == original_height) {
         return read_video_frame();
     }
 
     if (p_width != scaled_buf_w || p_height != scaled_buf_h || !sws_ctx_scaled) {
-        if (sws_ctx_scaled) {
-            sws_freeContext(sws_ctx_scaled);
-        }
+        if (sws_ctx_scaled) sws_freeContext(sws_ctx_scaled);
 
         for (int i = 0; i < 2; i++) {
             scaled_buffers[i] = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
@@ -388,99 +306,32 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
             SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
         );
         if (!sws_ctx_scaled) {
-            UtilityFunctions::push_error("[VideoDecoder] Could not create scaled scaler context");
             return read_video_frame();
         }
-
         scaled_width = p_width;
         scaled_height = p_height;
     }
 
-    AVPacket *pkt = av_packet_alloc();
-    Ref<Image> result;
-
-    while (av_read_frame(format_ctx, pkt) >= 0) {
-        if (pkt->stream_index == video_stream_index) {
-            int ret = avcodec_send_packet(video_codec_ctx, pkt);
-            av_packet_unref(pkt);
-            if (ret < 0) continue;
-
-            ret = avcodec_receive_frame(video_codec_ctx, video_frame);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) continue;
-            if (ret < 0) break;
-
-            if (video_frame->pts != AV_NOPTS_VALUE) {
-                AVStream *stream = format_ctx->streams[video_stream_index];
-                current_time = video_frame->pts * av_q2d(stream->time_base);
-            }
-
-            AVFrame *frame_to_convert = video_frame;
-            // FIX: handle both Android and iOS hw formats
-            if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
-                ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
-                if (ret >= 0) {
-                    frame_to_convert = hw_frame;
-                }
-            }
-
-            // ZERO-COPY: decode directly into persistent scaled Image buffer
-            Ref<Image> target = scaled_buffers[scaled_write_idx];
-            uint8_t *dst_data[1] = { target->ptrw() };
-            int dst_linesize[1] = { p_width * 4 };
-
-            sws_scale(sws_ctx_scaled, frame_to_convert->data, frame_to_convert->linesize, 0,
-                video_codec_ctx->height, dst_data, dst_linesize);
-
-            result = target;
-            scaled_write_idx = 1 - scaled_write_idx;
-            break;
-        } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx) {
-            int ret = avcodec_send_packet(audio_codec_ctx, pkt);
-            av_packet_unref(pkt);
-            if (ret < 0) continue;
-            while (ret >= 0) {
-                ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
-                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
-                if (ret < 0) break;
-                int out_samples = swr_get_out_samples(swr_ctx, audio_frame->nb_samples);
-                if (out_samples > 0) {
-                    uint8_t **dst_data = nullptr;
-                    int dst_linesize;
-                    av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, channels,
-                        out_samples, AV_SAMPLE_FMT_FLT, 0);
-                    int converted = swr_convert(swr_ctx, dst_data, out_samples,
-                        (const uint8_t **)audio_frame->data, audio_frame->nb_samples);
-                    if (converted > 0) {
-                        float *float_data = (float *)dst_data[0];
-                        int old_size = audio_buffer.size();
-                        audio_buffer.resize(old_size + converted * channels);
-                        memcpy(audio_buffer.ptrw() + old_size, float_data, converted * channels * sizeof(float));
-                    }
-                    av_freep(&dst_data[0]);
-                    av_freep(&dst_data);
-                }
-            }
-        } else {
-            av_packet_unref(pkt);
-        }
+    if (eof_reached) {
+        seek(0.0);
     }
 
-    av_packet_free(&pkt);
+    Ref<Image> target = scaled_buffers[scaled_write_idx];
+    Ref<Image> result = _decode_one_frame(p_width, p_height, sws_ctx_scaled, target);
+    if (result.is_valid()) {
+        scaled_write_idx = 1 - scaled_write_idx;
+    }
     return result;
 }
 
 PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
     PackedFloat32Array result;
-
-    if (!initialized || audio_stream_index < 0 || !audio_codec_ctx) {
-        return result;
-    }
+    if (!initialized || audio_stream_index < 0 || !audio_codec_ctx) return result;
 
     if (audio_buffer.size() > 0) {
-        int to_return = p_max_samples < audio_buffer.size() ? p_max_samples : audio_buffer.size();
+        int to_return = MIN(p_max_samples, audio_buffer.size());
         result.resize(to_return);
         memcpy(result.ptrw(), audio_buffer.ptr(), to_return * sizeof(float));
-
         if (to_return < audio_buffer.size()) {
             memmove(audio_buffer.ptrw(), audio_buffer.ptr() + to_return,
                 (audio_buffer.size() - to_return) * sizeof(float));
@@ -488,48 +339,43 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
         } else {
             audio_buffer.resize(0);
         }
-
-        if (to_return == p_max_samples) {
-            return result;
-        }
+        if (to_return == p_max_samples) return result;
         p_max_samples -= to_return;
     }
 
     AVPacket *pkt = av_packet_alloc();
-    while (audio_buffer.size() < p_max_samples && av_read_frame(format_ctx, pkt) >= 0) {
+    while (audio_buffer.size() < p_max_samples) {
+        int ret = av_read_frame(format_ctx, pkt);
+        if (ret < 0) break;
+
         if (pkt->stream_index == audio_stream_index) {
-            int ret = avcodec_send_packet(audio_codec_ctx, pkt);
+            ret = avcodec_send_packet(audio_codec_ctx, pkt);
             av_packet_unref(pkt);
             if (ret < 0) continue;
-
             while (ret >= 0) {
                 ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
                 if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
                 if (ret < 0) break;
-
                 int out_samples = swr_get_out_samples(swr_ctx, audio_frame->nb_samples);
                 if (out_samples > 0) {
                     uint8_t **dst_data = nullptr;
                     int dst_linesize;
                     av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, channels,
                         out_samples, AV_SAMPLE_FMT_FLT, 0);
-
                     int converted = swr_convert(swr_ctx, dst_data, out_samples,
                         (const uint8_t **)audio_frame->data, audio_frame->nb_samples);
-
                     if (converted > 0) {
                         float *float_data = (float *)dst_data[0];
                         int old_size = audio_buffer.size();
                         audio_buffer.resize(old_size + converted * channels);
                         memcpy(audio_buffer.ptrw() + old_size, float_data, converted * channels * sizeof(float));
                     }
-
                     av_freep(&dst_data[0]);
                     av_freep(&dst_data);
                 }
             }
         } else if (pkt->stream_index == video_stream_index) {
-            int ret = avcodec_send_packet(video_codec_ctx, pkt);
+            ret = avcodec_send_packet(video_codec_ctx, pkt);
             av_packet_unref(pkt);
             if (ret >= 0) {
                 while (avcodec_receive_frame(video_codec_ctx, video_frame) >= 0) {
@@ -543,15 +389,13 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
             av_packet_unref(pkt);
         }
     }
-
     av_packet_free(&pkt);
 
     if (audio_buffer.size() > 0) {
-        int to_return = p_max_samples < audio_buffer.size() ? p_max_samples : audio_buffer.size();
+        int to_return = MIN(p_max_samples, audio_buffer.size());
         int result_offset = result.size();
         result.resize(result_offset + to_return);
         memcpy(result.ptrw() + result_offset, audio_buffer.ptr(), to_return * sizeof(float));
-
         if (to_return < audio_buffer.size()) {
             memmove(audio_buffer.ptrw(), audio_buffer.ptr() + to_return,
                 (audio_buffer.size() - to_return) * sizeof(float));
@@ -560,73 +404,47 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
             audio_buffer.resize(0);
         }
     }
-
     return result;
 }
 
 bool VideoDecoder::seek(double p_time_seconds) {
-    if (!initialized) {
-        return false;
-    }
-
-    uint64_t t0 = Time::get_singleton()->get_ticks_msec();
+    if (!initialized) return false;
 
     int64_t ts = (int64_t)(p_time_seconds * AV_TIME_BASE);
     int ret = avformat_seek_file(format_ctx, -1, INT64_MIN, ts, INT64_MAX, 0);
     if (ret < 0) {
         ret = av_seek_frame(format_ctx, -1, ts, 0);
     }
-
-    uint64_t seek_ms = Time::get_singleton()->get_ticks_msec() - t0;
-
     if (ret < 0) {
         log_av_error("Seek failed", ret);
         return false;
     }
 
-    if (video_codec_ctx) {
-        avcodec_flush_buffers(video_codec_ctx);
-    }
-    if (audio_codec_ctx) {
-        avcodec_flush_buffers(audio_codec_ctx);
-    }
+    if (video_codec_ctx) avcodec_flush_buffers(video_codec_ctx);
+    if (audio_codec_ctx) avcodec_flush_buffers(audio_codec_ctx);
     audio_buffer.resize(0);
+    eof_reached = false;
     current_time = p_time_seconds;
-
-    UtilityFunctions::print("[VideoDecoder] seek to ", p_time_seconds, " took ", seek_ms, " ms");
     return true;
 }
 
-double VideoDecoder::get_duration() const {
-    return duration;
-}
-
-double VideoDecoder::get_current_time() const {
-    return current_time;
-}
+double VideoDecoder::get_duration() const { return duration; }
+double VideoDecoder::get_current_time() const { return current_time; }
 
 int VideoDecoder::get_video_width() const {
-    if (!initialized || !video_codec_ctx) return 0;
-    return video_codec_ctx->width;
+    return initialized && video_codec_ctx ? video_codec_ctx->width : 0;
 }
 
 int VideoDecoder::get_video_height() const {
-    if (!initialized || !video_codec_ctx) return 0;
-    return video_codec_ctx->height;
+    return initialized && video_codec_ctx ? video_codec_ctx->height : 0;
 }
 
 double VideoDecoder::get_video_fps() const {
     if (!initialized || video_stream_index < 0 || !format_ctx) return 0.0;
     AVStream *stream = format_ctx->streams[video_stream_index];
-    if (stream->avg_frame_rate.den != 0) {
-        return av_q2d(stream->avg_frame_rate);
-    }
-    if (stream->r_frame_rate.den != 0) {
-        return av_q2d(stream->r_frame_rate);
-    }
-    if (stream->time_base.den != 0) {
-        return 1.0 / av_q2d(stream->time_base);
-    }
+    if (stream->avg_frame_rate.den != 0) return av_q2d(stream->avg_frame_rate);
+    if (stream->r_frame_rate.den != 0) return av_q2d(stream->r_frame_rate);
+    if (stream->time_base.den != 0) return 1.0 / av_q2d(stream->time_base);
     return 0.0;
 }
 
@@ -635,23 +453,13 @@ bool VideoDecoder::has_audio() const {
 }
 
 void VideoDecoder::close() {
-    if (!initialized) {
-        return;
-    }
+    if (!initialized) return;
 
     audio_buffer.resize(0);
 
-    if (sws_ctx) {
-        sws_freeContext(sws_ctx);
-        sws_ctx = nullptr;
-    }
-    if (sws_ctx_scaled) {
-        sws_freeContext(sws_ctx_scaled);
-        sws_ctx_scaled = nullptr;
-    }
-    if (swr_ctx) {
-        swr_free(&swr_ctx);
-    }
+    if (sws_ctx) { sws_freeContext(sws_ctx); sws_ctx = nullptr; }
+    if (sws_ctx_scaled) { sws_freeContext(sws_ctx_scaled); sws_ctx_scaled = nullptr; }
+    if (swr_ctx) { swr_free(&swr_ctx); }
 
     av_frame_free(&video_frame);
     av_frame_free(&hw_frame);
@@ -684,17 +492,11 @@ void VideoDecoder::close() {
     channels = 0;
     scaled_width = 0;
     scaled_height = 0;
-
-    UtilityFunctions::print("[VideoDecoder] Closed.");
+    eof_reached = false;
 }
 
-bool VideoDecoder::is_open() const {
-    return initialized;
-}
+bool VideoDecoder::is_open() const { return initialized; }
 
-// ------------------------------------------------------------------
-// Belt-and-suspenders: ensure typeinfo for VideoDecoder is emitted
-// ------------------------------------------------------------------
 #include <typeinfo>
 namespace godot {
     struct VideoDecoderTypeinfoHelper {
