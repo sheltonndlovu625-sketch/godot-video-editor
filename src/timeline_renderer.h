@@ -4,6 +4,8 @@
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include "timeline.h"
 #include "video_encoder.h"
@@ -18,14 +20,20 @@ private:
     Ref<Timeline> timeline;
     Dictionary decoders;
     double last_render_time = -1.0;
-    bool preview_mode = false;
 
-    Ref<ImageTexture> output_texture;
-    int output_texture_w = 0;
-    int output_texture_h = 0;
+    // Persistent preview resources (create once, update forever)
+    Ref<ImageTexture> preview_texture;
+    RID preview_texture_rid;
+    int preview_tex_w = 0;
+    int preview_tex_h = 0;
 
-    Ref<VideoDecoder> get_decoder(const String &p_path, bool p_skip_audio);
+    // Reusable compositing buffers
+    Ref<Image> composite_buffer;
+    Ref<Image> black_frame;
+
+    Ref<VideoDecoder> get_decoder(const String &p_path);
     bool _needs_seek(double p_time);
+    Ref<Image> composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height);
     Ref<Image> composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height);
     PackedFloat32Array mix_audio(const TypedArray<PackedFloat32Array> &p_buffers);
 
@@ -36,11 +44,9 @@ public:
     void set_timeline(const Ref<Timeline> &p_timeline);
     Ref<Timeline> get_timeline() const;
 
-    void set_preview_mode(bool p_preview);
-    bool get_preview_mode() const;
-
     Ref<Image> render_video_frame(double p_time, int p_width, int p_height);
     Ref<ImageTexture> render_video_frame_to_texture(double p_time, int p_width, int p_height);
+    RID render_video_frame_to_rid(double p_time, int p_width, int p_height);
     PackedFloat32Array render_audio(double p_time, int p_num_samples, int p_sample_rate);
     bool export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate);
     void clear_cache();
