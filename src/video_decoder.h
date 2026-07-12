@@ -7,7 +7,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>  // <-- FIXED: added 's'
+#include <godot_cpp/variant/utility_functions.hpp>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -32,15 +32,21 @@ private:
     int video_stream_index = -1;
     AVFrame *video_frame = nullptr;
     AVFrame *hw_frame = nullptr;
-    AVFrame *rgba_frame = nullptr;
     SwsContext *sws_ctx = nullptr;
 
     int original_width = 0;
     int original_height = 0;
     int scaled_width = 0;
     int scaled_height = 0;
-    AVFrame *scaled_rgba_frame = nullptr;
     SwsContext *sws_ctx_scaled = nullptr;
+
+    // Double-buffered zero-copy output images
+    Ref<Image> native_buffers[2];
+    int native_write_idx = 0;
+    Ref<Image> scaled_buffers[2];
+    int scaled_write_idx = 0;
+    int scaled_buf_w = 0;
+    int scaled_buf_h = 0;
 
     AVCodecContext *audio_codec_ctx = nullptr;
     int audio_stream_index = -1;
@@ -54,15 +60,9 @@ private:
     int channels = 0;
     bool initialized = false;
     bool use_hwaccel = false;
-    bool skip_audio = false;
     enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
-    AVBufferRef *hw_device_ctx = nullptr;
 
-    // Reusable packet and byte buffer to avoid per-frame allocations
-    AVPacket *pkt = nullptr;
-    PackedByteArray video_bytes;
-
-    bool try_hwaccel(const AVCodec **p_codec);
+    bool try_hwaccel(const AVCodec **p_codec, AVCodecContext *p_ctx);
 
 protected:
     static void _bind_methods();
@@ -81,9 +81,6 @@ public:
     bool has_audio() const;
     void close();
     bool is_open() const;
-
-    void set_skip_audio(bool p_skip);
-    bool get_skip_audio() const;
 
     VideoDecoder();
     ~VideoDecoder();
