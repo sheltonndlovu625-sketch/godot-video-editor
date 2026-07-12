@@ -58,6 +58,8 @@ COMMON_FLAGS=(
     --enable-decoder=mp3
     --enable-decoder=aac
 
+    # FIX: Enable VideoToolbox hardware decoder
+    --enable-videotoolbox
     --enable-decoder=h264_videotoolbox
     --enable-decoder=hevc_videotoolbox
 
@@ -105,6 +107,7 @@ build_ios() {
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv8-a"
     fi
 
+    # FIX: Link VideoToolbox and CoreMedia frameworks
     "$SRC_DIR/configure" \
         --prefix="$OUT_DIR" \
         --arch="$ARCH" \
@@ -116,7 +119,7 @@ build_ios() {
         --ranlib="xcrun ranlib" \
         --sysroot="$SYSROOT" \
         --extra-cflags="$EXTRA_CFLAGS" \
-        --extra-ldflags="-arch $ARCH -mios-version-min=12.0 -O3" \
+        --extra-ldflags="-arch $ARCH -mios-version-min=12.0 -O3 -framework VideoToolbox -framework CoreMedia -framework CoreFoundation" \
         "${COMMON_FLAGS[@]}" || {
             echo "=== CONFIGURE FAILED for iOS $ARCH ==="
             tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
