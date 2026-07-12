@@ -55,8 +55,16 @@ bool TimelineRenderer::_needs_seek(double p_time) {
         return true;
     }
     double frame_duration = 1.0 / timeline->get_frame_rate();
-    double delta = Math::abs(p_time - last_render_time);
-    return delta > frame_duration * 2.5;
+    double delta = p_time - last_render_time;
+
+    // FIX: Playing forward sequentially — NEVER seek. The decoder reads ahead.
+    // Only seek if we jumped backward (scrubbing) or very far forward (skip).
+    if (delta >= 0.0 && delta < frame_duration * 10.0) {
+        return false;
+    }
+
+    // Backward jump or large forward jump — need seek
+    return Math::abs(delta) > frame_duration * 2.5;
 }
 
 Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
