@@ -13,6 +13,7 @@ API_LEVEL=24
 WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 INSTALL_PREFIX="$WORKSPACE/ffmpeg-android"
 
+# Nuclear clean
 rm -rf "$INSTALL_PREFIX"
 mkdir -p "$INSTALL_PREFIX"
 
@@ -36,7 +37,7 @@ COMMON_FLAGS=(
     --disable-shared
     --enable-static
     --enable-pic
-    --disable-asm           # <-- ADDED: disable hand-written assembly (GNU asm incompatible with LLVM)
+    --disable-asm
     --enable-gpl
     --enable-version3
     --disable-stripping
@@ -61,6 +62,14 @@ COMMON_FLAGS=(
     --enable-decoder=png
     --enable-decoder=mp3
     --enable-decoder=aac
+
+    # FIX: Enable MediaCodec hardware decoder
+    --enable-mediacodec
+    --enable-decoder=h264_mediacodec
+    --enable-decoder=hevc_mediacodec
+    --enable-decoder=mpeg4_mediacodec
+    --enable-decoder=vp8_mediacodec
+    --enable-decoder=vp9_mediacodec
 
     --enable-encoder=mjpeg
     --enable-encoder=aac
@@ -97,15 +106,17 @@ build_arch() {
     cd "$BUILD_DIR"
 
     local EXTRA_CFLAGS="-O3 -fPIC"
+    local ASM_FLAGS=""
 
     if [ "$ARCH" = "aarch64" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv8-a"
     elif [ "$ARCH" = "arm" ]; then
         EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv7-a -mfpu=neon -mfloat-abi=softfp"
     elif [ "$ARCH" = "x86_64" ]; then
-        EXTRA_CFLAGS="$EXTRA_CFLAGS -march=x86-64-v2"
+        ASM_FLAGS="--disable-x86asm"
     fi
 
+    # FIX: Link mediandk so FFmpeg can call AMediaCodec at runtime
     "$SRC_DIR/configure" \
         --prefix="$OUT_DIR" \
         --arch="$ARCH" \
@@ -119,7 +130,8 @@ build_arch() {
         --ranlib="$TOOLCHAIN/bin/llvm-ranlib" \
         --sysroot="$TOOLCHAIN/sysroot" \
         --extra-cflags="$EXTRA_CFLAGS" \
-        --extra-ldflags="-O3" \
+        --extra-ldflags="-O3 -lm -landroid -lmediandk" \
+        $ASM_FLAGS \
         "${COMMON_FLAGS[@]}" || {
             echo "=== CONFIGURE FAILED for $ARCH ==="
             tail -n 100 "$BUILD_DIR/ffbuild/config.log" 2>/dev/null || echo "no config.log"
