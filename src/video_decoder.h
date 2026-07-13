@@ -40,9 +40,11 @@ private:
     int scaled_height = 0;
     SwsContext *sws_ctx_scaled = nullptr;
 
-    // Single persistent buffer (no flickering from double-buffer race)
-    Ref<Image> native_buffer;
-    Ref<Image> scaled_buffer;
+    // Double-buffered zero-copy output images
+    Ref<Image> native_buffers[2];
+    int native_write_idx = 0;
+    Ref<Image> scaled_buffers[2];
+    int scaled_write_idx = 0;
     int scaled_buf_w = 0;
     int scaled_buf_h = 0;
 
