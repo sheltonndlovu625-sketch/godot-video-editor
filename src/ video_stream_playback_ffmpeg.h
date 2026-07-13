@@ -3,7 +3,7 @@
 
 #include <godot_cpp/classes/video_stream_playback.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
-#include <godot_cpp/classes/texture_2d.hpp>
+#include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <mutex>
 #include "video_decoder.h"
