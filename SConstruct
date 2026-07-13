@@ -12,9 +12,6 @@ env = SConscript("godot-cpp/SConstruct")
 env.Append(CPPPATH=["src/"])
 sources = Glob("src/*.cpp")
 
-# Ensure RTTI is enabled so typeinfo symbols are emitted for all classes
-env.Append(CXXFLAGS=["-frtti"])
-
 # ------------------------------------------------------------------
 # FFmpeg Configuration
 # ------------------------------------------------------------------
@@ -56,28 +53,17 @@ ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 # ------------------------------------------------------------------
 if env["platform"] == "android":
     env.Append(SHLINKFLAGS=["-Wl,-soname,libvideo_encoder.android.{}.{}.so".format(env["target"], env["arch"])])
-    # FIX: Added mediandk for MediaCodec hardware decoder support
-    env.Append(LIBS=["android", "log", "mediandk"])
-    if ffmpeg_path and os.path.exists(ffmpeg_lib):
-        whole_libs = []
-        for lib in ffmpeg_libs:
-            lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
-            if os.path.exists(lib_path):
-                whole_libs.append(lib_path)
-            else:
-                print("ERROR: FFmpeg library not found: " + lib_path)
-                sys.exit(1)
-        if whole_libs:
-            env.Append(LINKFLAGS=["-Wl,--whole-archive"])
-            env.Append(LINKFLAGS=whole_libs)
-            env.Append(LINKFLAGS=["-Wl,--no-whole-archive"])
+    # Link FFmpeg normally (shared lib pulls only what it needs)
+    env.Append(LIBS=ffmpeg_libs)
+    # System libs: m (math), z (zlib for png), android, log, mediandk
+    env.Append(LIBS=["m", "z", "android", "log", "mediandk"])
+    # Allow undefined JNI runtime symbols (JNI_GetCreatedJavaVMs, etc.)
+    # These resolve when the .so loads into the Android app
+    env.Append(SHLINKFLAGS=["-Wl,-z,nodefs"])
 
 elif env["platform"] == "ios":
     env.Append(CPPDEFINES=["IOS_ENABLED"])
-    # Use -all_load to force the linker to pull in all object files from static libs
-    # This prevents symbol stripping and ensures typeinfo is preserved
     env.Append(LINKFLAGS=["-all_load"])
-    # FFmpeg static libs first, then frameworks they depend on
     if ffmpeg_path and os.path.exists(ffmpeg_lib):
         for lib in ffmpeg_libs:
             lib_path = os.path.join(ffmpeg_lib, "lib" + lib + ".a")
@@ -103,7 +89,7 @@ elif env["platform"] == "windows":
 
 elif env["platform"] == "linux":
     env.Append(LIBS=ffmpeg_libs)
-    env.Append(LIBS=["pthread", "dl", "m"])
+    env.Append(LIBS=["pthread", "dl", "m", "z"])
 
 elif env["platform"] == "macos":
     env.Append(LIBS=ffmpeg_libs)
