@@ -28,6 +28,9 @@ class VideoDecoder : public RefCounted {
 private:
     AVFormatContext *format_ctx = nullptr;
 
+    // Reused packet — never alloc/free per frame
+    AVPacket *packet = nullptr;
+
     AVCodecContext *video_codec_ctx = nullptr;
     int video_stream_index = -1;
     AVFrame *video_frame = nullptr;
@@ -53,6 +56,10 @@ private:
     AVFrame *audio_frame = nullptr;
     SwrContext *swr_ctx = nullptr;
 
+    // Reused audio conversion buffer — never alloc/free per frame
+    float *audio_convert_buf = nullptr;
+    int audio_convert_buf_samples = 0;
+
     PackedFloat32Array audio_buffer;
     double duration = 0.0;
     double current_time = 0.0;
@@ -63,7 +70,6 @@ private:
     bool eof_reached = false;
     enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
 
-    // Updated to accept the pointer by reference for dynamic context creation
     Ref<Image> _decode_one_frame(int p_width, int p_height, SwsContext *&r_sws, Ref<Image> p_target);
 
 protected:
