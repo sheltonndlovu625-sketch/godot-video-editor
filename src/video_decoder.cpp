@@ -183,19 +183,21 @@ bool VideoDecoder::open(String p_path) {
 Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext *&r_sws, Ref<Image> p_target) {
     Ref<Image> result;
     int ret;
+    bool got_frame = false;
 
     while (true) {
         // 1. Drain any frame already buffered in the decoder (critical after seek/flush)
         ret = avcodec_receive_frame(video_codec_ctx, video_frame);
         if (ret == 0) {
-            // Got a frame — process it immediately
-            goto process_frame;
+            got_frame = true;
+            break;
+        }
+        if (ret == AVERROR_EOF) {
+            eof_reached = true;
+            return result;
         }
         if (ret != AVERROR(EAGAIN)) {
-            if (ret == AVERROR_EOF) {
-                eof_reached = true;
-            }
-            break; // Real error
+            return result; // Real error
         }
 
         // 2. No buffered frames — read and feed a packet
@@ -203,33 +205,35 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext
         ret = av_read_frame(format_ctx, packet);
         if (ret < 0) {
             if (ret == AVERROR_EOF && !eof_reached) {
-                // Begin flush: send NULL packet, then loop back to receive remaining frames
+                // Flush decoder — send NULL packet to get remaining frames
                 eof_reached = true;
                 avcodec_send_packet(video_codec_ctx, nullptr);
                 continue;
             }
-            break;
+            return result;
         }
 
         if (packet->stream_index != video_stream_index) {
-            continue; // Skip non-video; will be unref'd at top of loop
+            continue; // Skip non-video; will be unref'd at top of next loop
         }
 
         ret = avcodec_send_packet(video_codec_ctx, packet);
-        av_packet_unref(packet);
         if (ret == AVERROR(EAGAIN)) {
-            // Decoder is full. Since we called receive_frame first, this is rare,
-            // but we handle it by looping back to drain before resending.
+            // Decoder input full despite draining first. Rare but possible with
+            // codecs that buffer multiple packets. Drop packet and retry.
+            av_packet_unref(packet);
             continue;
         }
+        av_packet_unref(packet); // Send succeeded, decoder owns it now
         if (ret < 0) continue;
-
-        // Loop back to call avcodec_receive_frame for the packet we just sent
+        // Loop back to receive_frame for the frame from this packet
     }
 
-    return result;
+    if (!got_frame) {
+        return result;
+    }
 
-process_frame:
+    // Update current_time from the frame's actual PTS
     if (video_frame->pts != AV_NOPTS_VALUE) {
         AVStream *stream = format_ctx->streams[video_stream_index];
         current_time = video_frame->pts * av_q2d(stream->time_base);
@@ -339,13 +343,11 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
 
         if (packet->stream_index == audio_stream_index) {
             ret = avcodec_send_packet(audio_codec_ctx, packet);
-            av_packet_unref(packet);
             if (ret == AVERROR(EAGAIN)) {
-                // Drain before resending — but we don't have the packet anymore.
-                // For audio, just try to receive and continue; packet is lost.
-                // (Audio is not the jitter source; video loop above is the real fix.)
+                av_packet_unref(packet);
                 continue;
             }
+            av_packet_unref(packet);
             if (ret < 0) continue;
             while (ret >= 0) {
                 ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
@@ -371,6 +373,10 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
             }
         } else if (packet->stream_index == video_stream_index) {
             ret = avcodec_send_packet(video_codec_ctx, packet);
+            if (ret == AVERROR(EAGAIN)) {
+                av_packet_unref(packet);
+                continue;
+            }
             av_packet_unref(packet);
             if (ret >= 0) {
                 while (avcodec_receive_frame(video_codec_ctx, video_frame) >= 0) {
