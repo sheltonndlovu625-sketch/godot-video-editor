@@ -63,7 +63,8 @@ private:
     bool eof_reached = false;
     enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
 
-    Ref<Image> _decode_one_frame(int p_width, int p_height, SwsContext *p_sws, Ref<Image> p_target);
+    // Updated to accept the pointer by reference for dynamic context creation
+    Ref<Image> _decode_one_frame(int p_width, int p_height, SwsContext *&r_sws, Ref<Image> p_target);
 
 protected:
     static void _bind_methods();
