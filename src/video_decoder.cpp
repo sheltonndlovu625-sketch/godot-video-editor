@@ -132,10 +132,8 @@ bool VideoDecoder::open(String p_path) {
     video_frame = av_frame_alloc();
     hw_frame = av_frame_alloc();
 
-    for (int i = 0; i < 2; i++) {
-        native_buffers[i] = Image::create(original_width, original_height, false, Image::FORMAT_RGBA8);
-    }
-    native_write_idx = 0;
+    // Single persistent buffer (no flicker from buffer swap)
+    native_buffer = Image::create(original_width, original_height, false, Image::FORMAT_RGBA8);
 
     sws_ctx = sws_getContext(
         original_width, original_height, video_codec_ctx->pix_fmt,
@@ -180,6 +178,7 @@ bool VideoDecoder::open(String p_path) {
     initialized = true;
     current_time = 0.0;
     eof_reached = false;
+    UtilityFunctions::print("[VideoDecoder] Opened: ", resolved_path, " (", original_width, "x", original_height, ") HW=", use_hwaccel);
     return true;
 }
 
@@ -190,10 +189,7 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext
     while (true) {
         int ret = av_read_frame(format_ctx, pkt);
         if (ret < 0) {
-            // EOF or error
-            if (ret == AVERROR_EOF) {
-                eof_reached = true;
-            }
+            if (ret == AVERROR_EOF) eof_reached = true;
             av_packet_free(&pkt);
             break;
         }
@@ -221,6 +217,10 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext
                 ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
                 if (ret >= 0) {
                     frame_to_convert = hw_frame;
+                } else {
+                    log_av_error("HW transfer failed", ret);
+                    // Fallback: try software path with original frame
+                    frame_to_convert = video_frame;
                 }
             }
 
@@ -270,35 +270,21 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext
 
 Ref<Image> VideoDecoder::read_video_frame() {
     if (!initialized || video_stream_index < 0) return Ref<Image>();
-
-    if (eof_reached) {
-        seek(0.0);
-    }
-
-    Ref<Image> target = native_buffers[native_write_idx];
-    Ref<Image> result = _decode_one_frame(original_width, original_height, sws_ctx, target);
-    if (result.is_valid()) {
-        native_write_idx = 1 - native_write_idx;
-    }
-    return result;
+    if (eof_reached) { seek(0.0); }
+    return _decode_one_frame(original_width, original_height, sws_ctx, native_buffer);
 }
 
 Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
     if (!initialized || video_stream_index < 0) return Ref<Image>();
-
     if (p_width == original_width && p_height == original_height) {
         return read_video_frame();
     }
 
     if (p_width != scaled_buf_w || p_height != scaled_buf_h || !sws_ctx_scaled) {
         if (sws_ctx_scaled) sws_freeContext(sws_ctx_scaled);
-
-        for (int i = 0; i < 2; i++) {
-            scaled_buffers[i] = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-        }
+        scaled_buffer = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
         scaled_buf_w = p_width;
         scaled_buf_h = p_height;
-        scaled_write_idx = 0;
 
         sws_ctx_scaled = sws_getContext(
             original_width, original_height, video_codec_ctx->pix_fmt,
@@ -312,16 +298,8 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
         scaled_height = p_height;
     }
 
-    if (eof_reached) {
-        seek(0.0);
-    }
-
-    Ref<Image> target = scaled_buffers[scaled_write_idx];
-    Ref<Image> result = _decode_one_frame(p_width, p_height, sws_ctx_scaled, target);
-    if (result.is_valid()) {
-        scaled_write_idx = 1 - scaled_write_idx;
-    }
-    return result;
+    if (eof_reached) { seek(0.0); }
+    return _decode_one_frame(p_width, p_height, sws_ctx_scaled, scaled_buffer);
 }
 
 PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
@@ -349,7 +327,7 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
         if (ret < 0) break;
 
         if (pkt->stream_index == audio_stream_index) {
-            ret = avcodec_send_packet(audio_codec_ctx, pkt);
+            int ret = avcodec_send_packet(audio_codec_ctx, pkt);
             av_packet_unref(pkt);
             if (ret < 0) continue;
             while (ret >= 0) {
@@ -375,7 +353,7 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
                 }
             }
         } else if (pkt->stream_index == video_stream_index) {
-            ret = avcodec_send_packet(video_codec_ctx, pkt);
+            int ret = avcodec_send_packet(video_codec_ctx, pkt);
             av_packet_unref(pkt);
             if (ret >= 0) {
                 while (avcodec_receive_frame(video_codec_ctx, video_frame) >= 0) {
@@ -472,12 +450,8 @@ void VideoDecoder::close() {
         avformat_close_input(&format_ctx);
     }
 
-    for (int i = 0; i < 2; i++) {
-        native_buffers[i].unref();
-        scaled_buffers[i].unref();
-    }
-    native_write_idx = 0;
-    scaled_write_idx = 0;
+    native_buffer.unref();
+    scaled_buffer.unref();
     scaled_buf_w = 0;
     scaled_buf_h = 0;
 
