@@ -137,15 +137,9 @@ bool VideoDecoder::open(String p_path) {
     }
     native_write_idx = 0;
 
-    sws_ctx = sws_getContext(
-        original_width, original_height, video_codec_ctx->pix_fmt,
-        original_width, original_height, AV_PIX_FMT_RGBA,
-        SWS_BILINEAR, nullptr, nullptr, nullptr
-    );
-    if (!sws_ctx) {
-        close();
-        return false;
-    }
+    // sws_ctx is now initialized dynamically inside _decode_one_frame to prevent hardware pixel format errors
+    sws_ctx = nullptr;
+    sws_ctx_scaled = nullptr;
 
     if (audio_stream_index >= 0) {
         AVStream *astream = format_ctx->streams[audio_stream_index];
@@ -183,14 +177,13 @@ bool VideoDecoder::open(String p_path) {
     return true;
 }
 
-Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext *p_sws, Ref<Image> p_target) {
+Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext *&r_sws, Ref<Image> p_target) {
     AVPacket *pkt = av_packet_alloc();
     Ref<Image> result;
 
     while (true) {
         int ret = av_read_frame(format_ctx, pkt);
         if (ret < 0) {
-            // EOF or error
             if (ret == AVERROR_EOF) {
                 eof_reached = true;
             }
@@ -224,13 +217,24 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext
                 }
             }
 
-            uint8_t *dst_data[1] = { p_target->ptrw() };
-            int dst_linesize[1] = { p_width * 4 };
+            // Correctly hook context to the transferred frame format instead of the hardware handle format
+            if (!r_sws) {
+                r_sws = sws_getContext(
+                    original_width, original_height, (AVPixelFormat)frame_to_convert->format,
+                    p_width, p_height, AV_PIX_FMT_RGBA,
+                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
+                );
+            }
 
-            sws_scale(p_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
-                video_codec_ctx->height, dst_data, dst_linesize);
+            if (r_sws) {
+                uint8_t *dst_data[1] = { p_target->ptrw() };
+                int dst_linesize[1] = { p_width * 4 };
 
-            result = p_target;
+                sws_scale(r_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
+                    original_height, dst_data, dst_linesize);
+
+                result = p_target;
+            }
             break;
 
         } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx) {
@@ -291,7 +295,10 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
     }
 
     if (p_width != scaled_buf_w || p_height != scaled_buf_h || !sws_ctx_scaled) {
-        if (sws_ctx_scaled) sws_freeContext(sws_ctx_scaled);
+        if (sws_ctx_scaled) {
+            sws_freeContext(sws_ctx_scaled);
+            sws_ctx_scaled = nullptr;
+        }
 
         for (int i = 0; i < 2; i++) {
             scaled_buffers[i] = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
@@ -299,15 +306,6 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
         scaled_buf_w = p_width;
         scaled_buf_h = p_height;
         scaled_write_idx = 0;
-
-        sws_ctx_scaled = sws_getContext(
-            original_width, original_height, video_codec_ctx->pix_fmt,
-            p_width, p_height, AV_PIX_FMT_RGBA,
-            SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
-        );
-        if (!sws_ctx_scaled) {
-            return read_video_frame();
-        }
         scaled_width = p_width;
         scaled_height = p_height;
     }
