@@ -137,9 +137,13 @@ bool VideoDecoder::open(String p_path) {
     }
     native_write_idx = 0;
 
-    // sws_ctx is now initialized dynamically inside _decode_one_frame to prevent hardware pixel format errors
     sws_ctx = nullptr;
     sws_ctx_scaled = nullptr;
+
+    // Allocate reusable packet — never alloc/free per frame again
+    packet = av_packet_alloc();
+    audio_convert_buf = nullptr;
+    audio_convert_buf_samples = 0;
 
     if (audio_stream_index >= 0) {
         AVStream *astream = format_ctx->streams[audio_stream_index];
@@ -178,97 +182,69 @@ bool VideoDecoder::open(String p_path) {
 }
 
 Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext *&r_sws, Ref<Image> p_target) {
-    AVPacket *pkt = av_packet_alloc();
     Ref<Image> result;
 
     while (true) {
-        int ret = av_read_frame(format_ctx, pkt);
+        av_packet_unref(packet);
+        int ret = av_read_frame(format_ctx, packet);
         if (ret < 0) {
             if (ret == AVERROR_EOF) {
                 eof_reached = true;
             }
-            av_packet_free(&pkt);
             break;
         }
 
-        if (pkt->stream_index == video_stream_index) {
-            ret = avcodec_send_packet(video_codec_ctx, pkt);
-            av_packet_unref(pkt);
-            if (ret < 0) continue;
-
-            ret = avcodec_receive_frame(video_codec_ctx, video_frame);
-            if (ret == AVERROR(EAGAIN)) continue;
-            if (ret == AVERROR_EOF) {
-                eof_reached = true;
-                break;
-            }
-            if (ret < 0) break;
-
-            if (video_frame->pts != AV_NOPTS_VALUE) {
-                AVStream *stream = format_ctx->streams[video_stream_index];
-                current_time = video_frame->pts * av_q2d(stream->time_base);
-            }
-
-            AVFrame *frame_to_convert = video_frame;
-            if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
-                ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
-                if (ret >= 0) {
-                    frame_to_convert = hw_frame;
-                }
-            }
-
-            // Correctly hook context to the transferred frame format instead of the hardware handle format
-            if (!r_sws) {
-                r_sws = sws_getContext(
-                    original_width, original_height, (AVPixelFormat)frame_to_convert->format,
-                    p_width, p_height, AV_PIX_FMT_RGBA,
-                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
-                );
-            }
-
-            if (r_sws) {
-                uint8_t *dst_data[1] = { p_target->ptrw() };
-                int dst_linesize[1] = { p_width * 4 };
-
-                sws_scale(r_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
-                    original_height, dst_data, dst_linesize);
-
-                result = p_target;
-            }
-            break;
-
-        } else if (pkt->stream_index == audio_stream_index && audio_codec_ctx) {
-            int ret = avcodec_send_packet(audio_codec_ctx, pkt);
-            av_packet_unref(pkt);
-            if (ret < 0) continue;
-            while (ret >= 0) {
-                ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
-                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
-                if (ret < 0) break;
-                int out_samples = swr_get_out_samples(swr_ctx, audio_frame->nb_samples);
-                if (out_samples > 0) {
-                    uint8_t **dst_data = nullptr;
-                    int dst_linesize;
-                    av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, channels,
-                        out_samples, AV_SAMPLE_FMT_FLT, 0);
-                    int converted = swr_convert(swr_ctx, dst_data, out_samples,
-                        (const uint8_t **)audio_frame->data, audio_frame->nb_samples);
-                    if (converted > 0) {
-                        float *float_data = (float *)dst_data[0];
-                        int old_size = audio_buffer.size();
-                        audio_buffer.resize(old_size + converted * channels);
-                        memcpy(audio_buffer.ptrw() + old_size, float_data, converted * channels * sizeof(float));
-                    }
-                    av_freep(&dst_data[0]);
-                    av_freep(&dst_data);
-                }
-            }
-        } else {
-            av_packet_unref(pkt);
+        if (packet->stream_index != video_stream_index) {
+            // Skip audio and unknown streams in the video reader.
+            // Audio is decoded only in read_audio_samples().
+            continue;
         }
+
+        ret = avcodec_send_packet(video_codec_ctx, packet);
+        av_packet_unref(packet); // We always own our copy; decoder made its own copy
+        if (ret < 0) continue;
+
+        ret = avcodec_receive_frame(video_codec_ctx, video_frame);
+        if (ret == AVERROR(EAGAIN)) continue;
+        if (ret == AVERROR_EOF) {
+            eof_reached = true;
+            break;
+        }
+        if (ret < 0) break;
+
+        if (video_frame->pts != AV_NOPTS_VALUE) {
+            AVStream *stream = format_ctx->streams[video_stream_index];
+            current_time = video_frame->pts * av_q2d(stream->time_base);
+        }
+
+        AVFrame *frame_to_convert = video_frame;
+        if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
+            ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
+            if (ret >= 0) {
+                frame_to_convert = hw_frame;
+            }
+        }
+
+        if (!r_sws) {
+            r_sws = sws_getContext(
+                original_width, original_height, (AVPixelFormat)frame_to_convert->format,
+                p_width, p_height, AV_PIX_FMT_RGBA,
+                SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
+            );
+        }
+
+        if (r_sws) {
+            uint8_t *dst_data[1] = { p_target->ptrw() };
+            int dst_linesize[1] = { p_width * 4 };
+
+            sws_scale(r_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
+                original_height, dst_data, dst_linesize);
+
+            result = p_target;
+        }
+        break;
     }
 
-    av_packet_free(&pkt);
     return result;
 }
 
@@ -341,14 +317,14 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
         p_max_samples -= to_return;
     }
 
-    AVPacket *pkt = av_packet_alloc();
     while (audio_buffer.size() < p_max_samples) {
-        int ret = av_read_frame(format_ctx, pkt);
+        av_packet_unref(packet);
+        int ret = av_read_frame(format_ctx, packet);
         if (ret < 0) break;
 
-        if (pkt->stream_index == audio_stream_index) {
-            ret = avcodec_send_packet(audio_codec_ctx, pkt);
-            av_packet_unref(pkt);
+        if (packet->stream_index == audio_stream_index) {
+            ret = avcodec_send_packet(audio_codec_ctx, packet);
+            av_packet_unref(packet);
             if (ret < 0) continue;
             while (ret >= 0) {
                 ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
@@ -356,25 +332,26 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
                 if (ret < 0) break;
                 int out_samples = swr_get_out_samples(swr_ctx, audio_frame->nb_samples);
                 if (out_samples > 0) {
-                    uint8_t **dst_data = nullptr;
-                    int dst_linesize;
-                    av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, channels,
-                        out_samples, AV_SAMPLE_FMT_FLT, 0);
-                    int converted = swr_convert(swr_ctx, dst_data, out_samples,
+                    // Reuse pre-allocated buffer, grow only when needed
+                    if (out_samples > audio_convert_buf_samples) {
+                        av_freep(&audio_convert_buf);
+                        av_samples_alloc((uint8_t**)&audio_convert_buf, nullptr, channels,
+                            out_samples, AV_SAMPLE_FMT_FLT, 0);
+                        audio_convert_buf_samples = out_samples;
+                    }
+                    int converted = swr_convert(swr_ctx, (uint8_t**)&audio_convert_buf, out_samples,
                         (const uint8_t **)audio_frame->data, audio_frame->nb_samples);
                     if (converted > 0) {
-                        float *float_data = (float *)dst_data[0];
+                        float *float_data = (float *)audio_convert_buf;
                         int old_size = audio_buffer.size();
                         audio_buffer.resize(old_size + converted * channels);
                         memcpy(audio_buffer.ptrw() + old_size, float_data, converted * channels * sizeof(float));
                     }
-                    av_freep(&dst_data[0]);
-                    av_freep(&dst_data);
                 }
             }
-        } else if (pkt->stream_index == video_stream_index) {
-            ret = avcodec_send_packet(video_codec_ctx, pkt);
-            av_packet_unref(pkt);
+        } else if (packet->stream_index == video_stream_index) {
+            ret = avcodec_send_packet(video_codec_ctx, packet);
+            av_packet_unref(packet);
             if (ret >= 0) {
                 while (avcodec_receive_frame(video_codec_ctx, video_frame) >= 0) {
                     if (video_frame->pts != AV_NOPTS_VALUE) {
@@ -384,10 +361,9 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
                 }
             }
         } else {
-            av_packet_unref(pkt);
+            av_packet_unref(packet);
         }
     }
-    av_packet_free(&pkt);
 
     if (audio_buffer.size() > 0) {
         int to_return = MIN(p_max_samples, audio_buffer.size());
@@ -469,6 +445,11 @@ void VideoDecoder::close() {
     if (format_ctx) {
         avformat_close_input(&format_ctx);
     }
+
+    // Free reusable packet and audio buffer
+    av_packet_free(&packet);
+    av_freep(&audio_convert_buf);
+    audio_convert_buf_samples = 0;
 
     for (int i = 0; i < 2; i++) {
         native_buffers[i].unref();
