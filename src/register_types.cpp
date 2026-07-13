@@ -1,6 +1,8 @@
 #include "register_types.h"
 #include "video_encoder.h"
 #include "video_decoder.h"
+#include "video_stream_ffmpeg.h"
+#include "video_stream_playback_ffmpeg.h"
 #include "timeline_clip.h"
 #include "timeline_track.h"
 #include "timeline.h"
@@ -20,6 +22,8 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         avformat_network_init();
         ClassDB::register_class<VideoEncoder>();
         ClassDB::register_class<VideoDecoder>();
+        ClassDB::register_class<VideoStreamFFmpeg>();
+        ClassDB::register_class<VideoStreamPlaybackFFmpeg>();
         ClassDB::register_class<TimelineClip>();
         ClassDB::register_class<TimelineTrack>();
         ClassDB::register_class<Timeline>();
