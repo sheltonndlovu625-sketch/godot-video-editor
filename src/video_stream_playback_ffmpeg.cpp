@@ -1,6 +1,6 @@
 #include "video_stream_playback_ffmpeg.h"
 #include <godot_cpp/core/class_db.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/variant/utility_function.hpp>
 
 using namespace godot;
 
@@ -56,7 +56,6 @@ void VideoStreamPlaybackFFmpeg::_switch_clip(int p_idx) {
 }
 
 void VideoStreamPlaybackFFmpeg::_play() {
-    std::lock_guard<std::mutex> lock(state_mutex);
     playing = true;
     paused = false;
     needs_seek = true;
@@ -67,7 +66,6 @@ void VideoStreamPlaybackFFmpeg::_play() {
 }
 
 void VideoStreamPlaybackFFmpeg::_stop() {
-    std::lock_guard<std::mutex> lock(state_mutex);
     playing = false;
     playback_position = 0.0;
     current_clip_idx = -1;
@@ -77,22 +75,18 @@ void VideoStreamPlaybackFFmpeg::_stop() {
 }
 
 bool VideoStreamPlaybackFFmpeg::_is_playing() const {
-    std::lock_guard<std::mutex> lock(state_mutex);
     return playing;
 }
 
 void VideoStreamPlaybackFFmpeg::_set_paused(bool p_paused) {
-    std::lock_guard<std::mutex> lock(state_mutex);
     paused = p_paused;
 }
 
 bool VideoStreamPlaybackFFmpeg::_is_paused() const {
-    std::lock_guard<std::mutex> lock(state_mutex);
     return paused;
 }
 
 void VideoStreamPlaybackFFmpeg::_seek(double p_time) {
-    std::lock_guard<std::mutex> lock(state_mutex);
     playback_position = CLAMP(p_time, 0.0, total_duration);
     needs_seek = true;
     int target = _find_clip(playback_position);
@@ -111,7 +105,6 @@ double VideoStreamPlaybackFFmpeg::_get_length() const {
 }
 
 double VideoStreamPlaybackFFmpeg::_get_playback_position() const {
-    std::lock_guard<std::mutex> lock(state_mutex);
     return playback_position;
 }
 
@@ -120,7 +113,6 @@ Ref<Texture2D> VideoStreamPlaybackFFmpeg::_get_texture() const {
 }
 
 void VideoStreamPlaybackFFmpeg::_update(double p_delta) {
-    std::lock_guard<std::mutex> lock(state_mutex);
     if (!playing || paused) return;
 
     playback_position += p_delta;
@@ -169,7 +161,6 @@ int VideoStreamPlaybackFFmpeg::_get_mix_rate() const {
 }
 
 int VideoStreamPlaybackFFmpeg::mix_audio(int p_frames, PackedFloat32Array p_buffer, int p_offset) {
-    std::lock_guard<std::mutex> lock(state_mutex);
     if (!playing || paused || current_clip_idx < 0) return 0;
     if (audio_decoder.is_null() || !audio_decoder->is_open() || !audio_decoder->has_audio()) return 0;
 
