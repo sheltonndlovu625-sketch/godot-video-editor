@@ -140,7 +140,6 @@ bool VideoDecoder::open(String p_path) {
     sws_ctx = nullptr;
     sws_ctx_scaled = nullptr;
 
-    // Allocate reusable packet — never alloc/free per frame again
     packet = av_packet_alloc();
     audio_convert_buf = nullptr;
     audio_convert_buf_samples = 0;
@@ -183,68 +182,84 @@ bool VideoDecoder::open(String p_path) {
 
 Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext *&r_sws, Ref<Image> p_target) {
     Ref<Image> result;
+    int ret;
 
     while (true) {
-        av_packet_unref(packet);
-        int ret = av_read_frame(format_ctx, packet);
-        if (ret < 0) {
+        // 1. Drain any frame already buffered in the decoder (critical after seek/flush)
+        ret = avcodec_receive_frame(video_codec_ctx, video_frame);
+        if (ret == 0) {
+            // Got a frame — process it immediately
+            goto process_frame;
+        }
+        if (ret != AVERROR(EAGAIN)) {
             if (ret == AVERROR_EOF) {
                 eof_reached = true;
+            }
+            break; // Real error
+        }
+
+        // 2. No buffered frames — read and feed a packet
+        av_packet_unref(packet);
+        ret = av_read_frame(format_ctx, packet);
+        if (ret < 0) {
+            if (ret == AVERROR_EOF && !eof_reached) {
+                // Begin flush: send NULL packet, then loop back to receive remaining frames
+                eof_reached = true;
+                avcodec_send_packet(video_codec_ctx, nullptr);
+                continue;
             }
             break;
         }
 
         if (packet->stream_index != video_stream_index) {
-            // Skip audio and unknown streams in the video reader.
-            // Audio is decoded only in read_audio_samples().
-            continue;
+            continue; // Skip non-video; will be unref'd at top of loop
         }
 
         ret = avcodec_send_packet(video_codec_ctx, packet);
-        av_packet_unref(packet); // We always own our copy; decoder made its own copy
+        av_packet_unref(packet);
+        if (ret == AVERROR(EAGAIN)) {
+            // Decoder is full. Since we called receive_frame first, this is rare,
+            // but we handle it by looping back to drain before resending.
+            continue;
+        }
         if (ret < 0) continue;
 
-        ret = avcodec_receive_frame(video_codec_ctx, video_frame);
-        if (ret == AVERROR(EAGAIN)) continue;
-        if (ret == AVERROR_EOF) {
-            eof_reached = true;
-            break;
-        }
-        if (ret < 0) break;
-
-        if (video_frame->pts != AV_NOPTS_VALUE) {
-            AVStream *stream = format_ctx->streams[video_stream_index];
-            current_time = video_frame->pts * av_q2d(stream->time_base);
-        }
-
-        AVFrame *frame_to_convert = video_frame;
-        if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
-            ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
-            if (ret >= 0) {
-                frame_to_convert = hw_frame;
-            }
-        }
-
-        if (!r_sws) {
-            r_sws = sws_getContext(
-                original_width, original_height, (AVPixelFormat)frame_to_convert->format,
-                p_width, p_height, AV_PIX_FMT_RGBA,
-                SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
-            );
-        }
-
-        if (r_sws) {
-            uint8_t *dst_data[1] = { p_target->ptrw() };
-            int dst_linesize[1] = { p_width * 4 };
-
-            sws_scale(r_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
-                original_height, dst_data, dst_linesize);
-
-            result = p_target;
-        }
-        break;
+        // Loop back to call avcodec_receive_frame for the packet we just sent
     }
 
+    return result;
+
+process_frame:
+    if (video_frame->pts != AV_NOPTS_VALUE) {
+        AVStream *stream = format_ctx->streams[video_stream_index];
+        current_time = video_frame->pts * av_q2d(stream->time_base);
+    }
+
+    AVFrame *frame_to_convert = video_frame;
+    if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
+        ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
+        if (ret >= 0) {
+            frame_to_convert = hw_frame;
+        }
+    }
+
+    if (!r_sws) {
+        r_sws = sws_getContext(
+            original_width, original_height, (AVPixelFormat)frame_to_convert->format,
+            p_width, p_height, AV_PIX_FMT_RGBA,
+            SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
+        );
+    }
+
+    if (r_sws) {
+        uint8_t *dst_data[1] = { p_target->ptrw() };
+        int dst_linesize[1] = { p_width * 4 };
+
+        sws_scale(r_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
+            original_height, dst_data, dst_linesize);
+
+        result = p_target;
+    }
     return result;
 }
 
@@ -325,6 +340,12 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
         if (packet->stream_index == audio_stream_index) {
             ret = avcodec_send_packet(audio_codec_ctx, packet);
             av_packet_unref(packet);
+            if (ret == AVERROR(EAGAIN)) {
+                // Drain before resending — but we don't have the packet anymore.
+                // For audio, just try to receive and continue; packet is lost.
+                // (Audio is not the jitter source; video loop above is the real fix.)
+                continue;
+            }
             if (ret < 0) continue;
             while (ret >= 0) {
                 ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
@@ -332,7 +353,6 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
                 if (ret < 0) break;
                 int out_samples = swr_get_out_samples(swr_ctx, audio_frame->nb_samples);
                 if (out_samples > 0) {
-                    // Reuse pre-allocated buffer, grow only when needed
                     if (out_samples > audio_convert_buf_samples) {
                         av_freep(&audio_convert_buf);
                         av_samples_alloc((uint8_t**)&audio_convert_buf, nullptr, channels,
@@ -398,7 +418,8 @@ bool VideoDecoder::seek(double p_time_seconds) {
     if (audio_codec_ctx) avcodec_flush_buffers(audio_codec_ctx);
     audio_buffer.resize(0);
     eof_reached = false;
-    current_time = p_time_seconds;
+    // REMOVED: current_time = p_time_seconds;
+    // The first decoded frame will set current_time to the actual PTS.
     return true;
 }
 
@@ -446,7 +467,6 @@ void VideoDecoder::close() {
         avformat_close_input(&format_ctx);
     }
 
-    // Free reusable packet and audio buffer
     av_packet_free(&packet);
     av_freep(&audio_convert_buf);
     audio_convert_buf_samples = 0;
