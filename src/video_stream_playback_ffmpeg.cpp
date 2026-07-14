@@ -55,13 +55,24 @@ void VideoStreamPlaybackFFmpeg::_switch_clip(int p_idx) {
     }
 }
 
+void VideoStreamPlaybackFFmpeg::_prime_first_frame() {
+    if (video_decoder.is_null() || !video_decoder->is_open()) return;
+    
+    Ref<Image> img = video_decoder->read_video_frame();
+    if (img.is_valid()) {
+        frame_texture = ImageTexture::create_from_image(img);
+    }
+}
+
 void VideoStreamPlaybackFFmpeg::_play() {
     playing = true;
     paused = false;
     needs_seek = true;
     playback_position = 0.0;
+    
     if (clips.size() > 0 && current_clip_idx < 0) {
         _switch_clip(0);
+        _prime_first_frame();  // Decode first frame immediately so texture exists
     }
 }
 
@@ -92,6 +103,7 @@ void VideoStreamPlaybackFFmpeg::_seek(double p_time) {
     int target = _find_clip(playback_position);
     if (target != current_clip_idx) {
         _switch_clip(target);
+        _prime_first_frame();  // Prime after seek too
     } else if (video_decoder.is_valid()) {
         double local = playback_position - clips[target].start_time;
         video_decoder->seek(local);
