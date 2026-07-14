@@ -40,6 +40,7 @@ private:
 
     int _find_clip(double p_time) const;
     void _switch_clip(int p_idx);
+    void _prime_first_frame();
 
 protected:
     static void _bind_methods();
