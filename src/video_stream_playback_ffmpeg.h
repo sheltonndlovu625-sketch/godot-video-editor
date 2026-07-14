@@ -5,7 +5,6 @@
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
-#include <mutex>
 #include "video_decoder.h"
 
 namespace godot {
@@ -39,8 +38,6 @@ private:
     int audio_channels = 2;
     int audio_sample_rate = 48000;
 
-    std::mutex state_mutex;
-
     int _find_clip(double p_time) const;
     void _switch_clip(int p_idx);
 
@@ -63,7 +60,7 @@ public:
 
     virtual int _get_channels() const override;
     virtual int _get_mix_rate() const override;
-    virtual int mix_audio(int p_frames, PackedFloat32Array p_buffer, int p_offset) override;
+    int mix_audio(int p_frames, PackedFloat32Array p_buffer, int p_offset);
 
     VideoStreamPlaybackFFmpeg();
     ~VideoStreamPlaybackFFmpeg();
