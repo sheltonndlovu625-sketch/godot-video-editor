@@ -1,6 +1,6 @@
 #include "video_stream_playback_ffmpeg.h"
 #include <godot_cpp/core/class_db.hpp>
-#include <godot_cpp/variant/utility_function.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 
