@@ -18,6 +18,10 @@ void TimelineTrack::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_layer_index"), &TimelineTrack::get_layer_index);
     ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "layer_index"), "set_layer_index", "get_layer_index");
 
+    ClassDB::bind_method(D_METHOD("set_blend_mode", "mode"), &TimelineTrack::set_blend_mode);
+    ClassDB::bind_method(D_METHOD("get_blend_mode"), &TimelineTrack::get_blend_mode);
+    ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "blend_mode"), "set_blend_mode", "get_blend_mode");
+
     ClassDB::bind_method(D_METHOD("add_clip", "clip"), &TimelineTrack::add_clip);
     ClassDB::bind_method(D_METHOD("remove_clip", "index"), &TimelineTrack::remove_clip);
     ClassDB::bind_method(D_METHOD("clear_clips"), &TimelineTrack::clear_clips);
@@ -29,10 +33,14 @@ void TimelineTrack::_bind_methods() {
 
     BIND_ENUM_CONSTANT(TRACK_TYPE_VIDEO);
     BIND_ENUM_CONSTANT(TRACK_TYPE_AUDIO);
+
+    BIND_ENUM_CONSTANT(BLEND_MODE_NORMAL);
+    BIND_ENUM_CONSTANT(BLEND_MODE_ADD);
+    BIND_ENUM_CONSTANT(BLEND_MODE_MULTIPLY);
+    BIND_ENUM_CONSTANT(BLEND_MODE_SUBTRACT);
 }
 
 TimelineTrack::TimelineTrack() {}
-
 TimelineTrack::~TimelineTrack() {}
 
 void TimelineTrack::set_track_type(int p_type) {
@@ -49,6 +57,14 @@ void TimelineTrack::set_layer_index(int p_index) {
 
 int TimelineTrack::get_layer_index() const {
     return layer_index;
+}
+
+void TimelineTrack::set_blend_mode(int p_mode) {
+    blend_mode = (BlendMode)p_mode;
+}
+
+int TimelineTrack::get_blend_mode() const {
+    return (int)blend_mode;
 }
 
 void TimelineTrack::add_clip(const Ref<TimelineClip> &p_clip) {
