@@ -34,6 +34,8 @@ private:
     Ref<VideoDecoder> audio_decoder;
 
     Ref<ImageTexture> frame_texture;
+    // Fallback black texture to ensure _get_texture() never returns null
+    Ref<ImageTexture> black_texture;
 
     int audio_channels = 2;
     int audio_sample_rate = 48000;
@@ -41,6 +43,7 @@ private:
     int _find_clip(double p_time) const;
     void _switch_clip(int p_idx);
     bool _prime_first_frame();
+    void _ensure_black_texture(int p_width, int p_height);
 
 protected:
     static void _bind_methods();
