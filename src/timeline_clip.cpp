@@ -32,6 +32,27 @@ void TimelineClip::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear_effects"), &TimelineClip::clear_effects);
     ClassDB::bind_method(D_METHOD("get_effects"), &TimelineClip::get_effects);
     ClassDB::bind_method(D_METHOD("get_effect_count"), &TimelineClip::get_effect_count);
+
+    // Transform bindings
+    ClassDB::bind_method(D_METHOD("set_position", "pos"), &TimelineClip::set_position);
+    ClassDB::bind_method(D_METHOD("get_position"), &TimelineClip::get_position);
+    ClassDB::add_property("TimelineClip", PropertyInfo(Variant::VECTOR2, "position"), "set_position", "get_position");
+
+    ClassDB::bind_method(D_METHOD("set_scale", "scale"), &TimelineClip::set_scale);
+    ClassDB::bind_method(D_METHOD("get_scale"), &TimelineClip::get_scale);
+    ClassDB::add_property("TimelineClip", PropertyInfo(Variant::VECTOR2, "scale"), "set_scale", "get_scale");
+
+    ClassDB::bind_method(D_METHOD("set_rotation", "rotation"), &TimelineClip::set_rotation);
+    ClassDB::bind_method(D_METHOD("get_rotation"), &TimelineClip::get_rotation);
+    ClassDB::add_property("TimelineClip", PropertyInfo(Variant::FLOAT, "rotation"), "set_rotation", "get_rotation");
+
+    ClassDB::bind_method(D_METHOD("set_opacity", "opacity"), &TimelineClip::set_opacity);
+    ClassDB::bind_method(D_METHOD("get_opacity"), &TimelineClip::get_opacity);
+    ClassDB::add_property("TimelineClip", PropertyInfo(Variant::FLOAT, "opacity", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_opacity", "get_opacity");
+
+    ClassDB::bind_method(D_METHOD("set_anchor_point", "anchor"), &TimelineClip::set_anchor_point);
+    ClassDB::bind_method(D_METHOD("get_anchor_point"), &TimelineClip::get_anchor_point);
+    ClassDB::add_property("TimelineClip", PropertyInfo(Variant::VECTOR2, "anchor_point"), "set_anchor_point", "get_anchor_point");
 }
 
 TimelineClip::TimelineClip() {}
@@ -112,4 +133,45 @@ TypedArray<VideoEffect> TimelineClip::get_effects() const {
 
 int TimelineClip::get_effect_count() const {
     return effects.size();
+}
+
+// Transform implementations
+void TimelineClip::set_position(const Vector2 &p_pos) {
+    position = p_pos;
+}
+
+Vector2 TimelineClip::get_position() const {
+    return position;
+}
+
+void TimelineClip::set_scale(const Vector2 &p_scale) {
+    scale = p_scale;
+}
+
+Vector2 TimelineClip::get_scale() const {
+    return scale;
+}
+
+void TimelineClip::set_rotation(float p_rot) {
+    rotation = p_rot;
+}
+
+float TimelineClip::get_rotation() const {
+    return rotation;
+}
+
+void TimelineClip::set_opacity(float p_opacity) {
+    opacity = CLAMP(p_opacity, 0.0f, 1.0f);
+}
+
+float TimelineClip::get_opacity() const {
+    return opacity;
+}
+
+void TimelineClip::set_anchor_point(const Vector2 &p_anchor) {
+    anchor_point = p_anchor;
+}
+
+Vector2 TimelineClip::get_anchor_point() const {
+    return anchor_point;
 }
