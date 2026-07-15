@@ -26,10 +26,18 @@ void Timeline::_bind_methods() {
     ClassDB::bind_method(D_METHOD("step_forward"), &Timeline::step_forward);
     ClassDB::bind_method(D_METHOD("step_backward"), &Timeline::step_backward);
     ClassDB::bind_method(D_METHOD("is_at_end"), &Timeline::is_at_end);
+
+    // Text overlay bindings
+    ClassDB::bind_method(D_METHOD("add_text_overlay", "overlay"), &Timeline::add_text_overlay);
+    ClassDB::bind_method(D_METHOD("remove_text_overlay", "index"), &Timeline::remove_text_overlay);
+    ClassDB::bind_method(D_METHOD("clear_text_overlays"), &Timeline::clear_text_overlays);
+    ClassDB::bind_method(D_METHOD("get_text_overlay_count"), &Timeline::get_text_overlay_count);
+    ClassDB::bind_method(D_METHOD("get_text_overlay", "index"), &Timeline::get_text_overlay);
+    ClassDB::bind_method(D_METHOD("get_text_overlays_at_time", "time"), &Timeline::get_text_overlays_at_time);
+    ClassDB::bind_method(D_METHOD("get_all_text_overlays"), &Timeline::get_all_text_overlays);
 }
 
 Timeline::Timeline() {}
-
 Timeline::~Timeline() {}
 
 void Timeline::add_track(const Ref<TimelineTrack> &p_track) {
@@ -107,6 +115,13 @@ double Timeline::get_duration() const {
             max_duration = track_dur;
         }
     }
+    // Also check text overlays
+    for (int i = 0; i < text_overlays.size(); i++) {
+        Ref<TextOverlay> ov = text_overlays[i];
+        if (ov.is_valid() && ov->get_end_time() > max_duration) {
+            max_duration = ov->get_end_time();
+        }
+    }
     return max_duration;
 }
 
@@ -134,4 +149,48 @@ void Timeline::step_backward() {
 
 bool Timeline::is_at_end() const {
     return playhead_time >= get_duration();
+}
+
+// ---- Text overlay implementations ----
+
+void Timeline::add_text_overlay(const Ref<TextOverlay> &p_overlay) {
+    if (p_overlay.is_valid()) {
+        text_overlays.push_back(p_overlay);
+    }
+}
+
+void Timeline::remove_text_overlay(int p_index) {
+    if (p_index >= 0 && p_index < text_overlays.size()) {
+        text_overlays.remove_at(p_index);
+    }
+}
+
+void Timeline::clear_text_overlays() {
+    text_overlays.clear();
+}
+
+int Timeline::get_text_overlay_count() const {
+    return text_overlays.size();
+}
+
+Ref<TextOverlay> Timeline::get_text_overlay(int p_index) const {
+    if (p_index >= 0 && p_index < text_overlays.size()) {
+        return text_overlays[p_index];
+    }
+    return Ref<TextOverlay>();
+}
+
+TypedArray<TextOverlay> Timeline::get_text_overlays_at_time(double p_time) const {
+    TypedArray<TextOverlay> result;
+    for (int i = 0; i < text_overlays.size(); i++) {
+        Ref<TextOverlay> ov = text_overlays[i];
+        if (ov.is_valid() && ov->is_visible_at(p_time)) {
+            result.push_back(ov);
+        }
+    }
+    return result;
+}
+
+TypedArray<TextOverlay> Timeline::get_all_text_overlays() const {
+    return text_overlays;
 }
