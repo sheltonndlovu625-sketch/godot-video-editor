@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/vector2.hpp>
 #include "video_effect.h"
 
 namespace godot {
@@ -17,6 +18,13 @@ private:
     double source_out_point = 0.0;
     double playback_speed = 1.0;
     TypedArray<VideoEffect> effects;
+
+    // Transform
+    Vector2 position;
+    Vector2 scale = Vector2(1.0, 1.0);
+    float rotation = 0.0f;
+    float opacity = 1.0f;
+    Vector2 anchor_point = Vector2(0.5, 0.5);
 
 protected:
     static void _bind_methods();
@@ -46,6 +54,22 @@ public:
     void clear_effects();
     TypedArray<VideoEffect> get_effects() const;
     int get_effect_count() const;
+
+    // Transform
+    void set_position(const Vector2 &p_pos);
+    Vector2 get_position() const;
+
+    void set_scale(const Vector2 &p_scale);
+    Vector2 get_scale() const;
+
+    void set_rotation(float p_rot);
+    float get_rotation() const;
+
+    void set_opacity(float p_opacity);
+    float get_opacity() const;
+
+    void set_anchor_point(const Vector2 &p_anchor);
+    Vector2 get_anchor_point() const;
 
     TimelineClip();
     ~TimelineClip();
