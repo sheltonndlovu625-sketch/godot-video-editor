@@ -7,6 +7,9 @@
 #include "timeline_track.h"
 #include "timeline.h"
 #include "timeline_renderer.h"
+#include "video_effect.h"
+#include "shader_video_effect.h"
+#include "color_correction_effect.h"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
@@ -28,6 +31,9 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         ClassDB::register_class<TimelineTrack>();
         ClassDB::register_class<Timeline>();
         ClassDB::register_class<TimelineRenderer>();
+        ClassDB::register_class<VideoEffect>();
+        ClassDB::register_class<ShaderVideoEffect>();
+        ClassDB::register_class<ColorCorrectionEffect>();
     }
 }
 
