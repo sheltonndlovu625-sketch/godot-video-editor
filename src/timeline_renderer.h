@@ -6,11 +6,14 @@
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/canvas_item_material.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/transform2d.hpp>
 #include "timeline.h"
 #include "video_encoder.h"
 #include "video_decoder.h"
 #include "video_effect.h"
+#include "text_overlay.h"
 
 namespace godot {
 
@@ -22,7 +25,7 @@ private:
     Dictionary decoders;
     double last_render_time = -1.0;
 
-    // Persistent preview resources (create once, update forever)
+    // Persistent preview resources
     Ref<ImageTexture> preview_texture;
     RID preview_texture_rid;
     int preview_tex_w = 0;
@@ -32,12 +35,18 @@ private:
     Ref<Image> composite_buffer;
     Ref<Image> black_frame;
 
-    // GPU compositor for preview with effects
+    // GPU compositor
     RID comp_viewport;
     RID comp_canvas;
-    RID comp_canvas_item;
     int comp_w = 0;
     int comp_h = 0;
+    Vector<RID> layer_items;
+
+    // Cached blend mode materials
+    Ref<CanvasItemMaterial> mat_normal;
+    Ref<CanvasItemMaterial> mat_add;
+    Ref<CanvasItemMaterial> mat_multiply;
+    Ref<CanvasItemMaterial> mat_subtract;
 
     Ref<VideoDecoder> get_decoder(const String &p_path);
     bool _needs_seek(double p_time);
@@ -48,9 +57,17 @@ private:
     // GPU compositor helpers
     void _ensure_gpu_compositor(RenderingServer *p_rs, int p_width, int p_height);
     void _free_gpu_compositor();
-    RID _composite_gpu(RenderingServer *p_rs, const Vector<RID> &p_clip_textures, int p_width, int p_height);
+    void _ensure_layer_items(RenderingServer *p_rs, int p_count);
+    void _free_layer_items();
+    void _ensure_blend_materials();
+    RID _get_blend_material(int p_blend_mode) const;
+    RID _composite_gpu_with_transforms(RenderingServer *p_rs,
+        const Vector<RID> &p_textures,
+        const Vector<Transform2D> &p_transforms,
+        const Vector<int> &p_blend_modes,
+        const Vector<float> &p_opacities,
+        int p_width, int p_height);
 
-    // Export helper: apply CPU effects to a frame
     Ref<Image> _apply_cpu_effects(const Ref<Image> &p_frame, const TypedArray<VideoEffect> &p_effects, int p_width, int p_height);
 
 protected:
