@@ -55,11 +55,21 @@ void VideoStreamPlaybackFFmpeg::_switch_clip(int p_idx) {
     }
 }
 
+void VideoStreamPlaybackFFmpeg::_ensure_black_texture(int p_width, int p_height) {
+    if (black_texture.is_valid() && 
+        black_texture->get_width() == p_width && 
+        black_texture->get_height() == p_height) {
+        return;
+    }
+    Ref<Image> black = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+    black->fill(Color(0, 0, 0, 1));
+    black_texture = ImageTexture::create_from_image(black);
+}
+
 bool VideoStreamPlaybackFFmpeg::_prime_first_frame() {
     if (video_decoder.is_null() || !video_decoder->is_open()) return false;
     
     // FFmpeg decoder often needs multiple packets before producing the first frame.
-    // Try up to 30 reads to buffer enough packets.
     for (int attempt = 0; attempt < 30; attempt++) {
         Ref<Image> img = video_decoder->read_video_frame();
         if (img.is_valid()) {
@@ -129,7 +139,16 @@ double VideoStreamPlaybackFFmpeg::_get_playback_position() const {
 }
 
 Ref<Texture2D> VideoStreamPlaybackFFmpeg::_get_texture() const {
-    return frame_texture;
+    // CRITICAL: Never return null. Godot's VideoStreamPlayer won't render
+    // anything if this returns null.
+    if (frame_texture.is_valid()) {
+        return frame_texture;
+    }
+    // Return a 1x1 black pixel as absolute fallback
+    // (const_cast is safe here because we're just creating a cache texture)
+    VideoStreamPlaybackFFmpeg *self = const_cast<VideoStreamPlaybackFFmpeg *>(this);
+    self->_ensure_black_texture(1, 1);
+    return black_texture;
 }
 
 void VideoStreamPlaybackFFmpeg::_update(double p_delta) {
@@ -148,8 +167,8 @@ void VideoStreamPlaybackFFmpeg::_update(double p_delta) {
     if (target != current_clip_idx) {
         _switch_clip(target);
         needs_seek = true;
-        _prime_first_frame();  // Prime immediately after clip switch
-        return;  // Skip the rest this frame, we already have a texture
+        _prime_first_frame();
+        return;
     }
 
     if (video_decoder.is_null() || !video_decoder->is_open()) return;
@@ -172,7 +191,7 @@ void VideoStreamPlaybackFFmpeg::_update(double p_delta) {
             frame_texture->update(img);
         }
     }
-    // If img is null, keep the previous frame_texture (hold frame)
+    // If img is null, keep previous frame (hold frame)
 }
 
 int VideoStreamPlaybackFFmpeg::_get_channels() const {
