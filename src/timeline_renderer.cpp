@@ -13,6 +13,7 @@ void TimelineRenderer::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("render_video_frame", "time", "width", "height"), &TimelineRenderer::render_video_frame);
     ClassDB::bind_method(D_METHOD("render_video_frame_to_texture", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_texture);
+    ClassDB::bind_method(D_METHOD("render_video_frame_to_rid", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_rid);
     ClassDB::bind_method(D_METHOD("render_audio", "time", "num_samples", "sample_rate"), &TimelineRenderer::render_audio);
     ClassDB::bind_method(D_METHOD("export_to_file", "path", "width", "height", "fps", "video_bitrate", "sample_rate", "audio_bitrate"), &TimelineRenderer::export_to_file);
     ClassDB::bind_method(D_METHOD("clear_cache"), &TimelineRenderer::clear_cache);
@@ -163,26 +164,157 @@ Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time,
     return preview_texture;
 }
 
-RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int p_height) {
-    Ref<Image> img = render_video_frame(p_time, p_width, p_height);
-    if (img.is_null()) {
-        return RID();
+// ------------------------------------------------------------------
+// GPU Compositor Helpers
+// ------------------------------------------------------------------
+
+void TimelineRenderer::_ensure_gpu_compositor(RenderingServer *p_rs, int p_width, int p_height) {
+    if (comp_viewport.is_valid() && comp_w == p_width && comp_h == p_height) {
+        return;
     }
+
+    _free_gpu_compositor();
+
+    comp_viewport = p_rs->viewport_create();
+    p_rs->viewport_set_size(comp_viewport, p_width, p_height);
+    p_rs->viewport_set_transparent_background(comp_viewport, false);
+    p_rs->viewport_set_active(comp_viewport, true);
+
+    comp_canvas = p_rs->canvas_create();
+    comp_canvas_item = p_rs->canvas_item_create();
+    p_rs->canvas_item_set_parent(comp_canvas_item, comp_canvas);
+
+    p_rs->viewport_attach_canvas(comp_viewport, comp_canvas);
+
+    comp_w = p_width;
+    comp_h = p_height;
+}
+
+void TimelineRenderer::_free_gpu_compositor() {
+    RenderingServer *p_rs = RenderingServer::get_singleton();
+    if (!p_rs) return;
+    if (comp_canvas_item.is_valid()) { p_rs->free_rid(comp_canvas_item); comp_canvas_item = RID(); }
+    if (comp_canvas.is_valid()) { p_rs->free_rid(comp_canvas); comp_canvas = RID(); }
+    if (comp_viewport.is_valid()) { p_rs->free_rid(comp_viewport); comp_viewport = RID(); }
+    comp_w = 0; comp_h = 0;
+}
+
+RID TimelineRenderer::_composite_gpu(RenderingServer *p_rs, const Vector<RID> &p_clip_textures, int p_width, int p_height) {
+    _ensure_gpu_compositor(p_rs, p_width, p_height);
+
+    p_rs->canvas_item_clear(comp_canvas_item);
+
+    for (int i = 0; i < p_clip_textures.size(); i++) {
+        // Draw bottom-to-top (Vector is already sorted by layer_index)
+        p_rs->canvas_item_add_texture_rect(
+            comp_canvas_item,
+            Rect2(0, 0, p_width, p_height),
+            p_clip_textures[i]
+        );
+    }
+
+    p_rs->viewport_set_update_mode(comp_viewport, RenderingServer::VIEWPORT_UPDATE_ONCE);
+    return p_rs->viewport_get_texture(comp_viewport);
+}
+
+// ------------------------------------------------------------------
+// GPU + Effects Preview Path
+// ------------------------------------------------------------------
+
+RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int p_height) {
+    if (timeline.is_null()) return RID();
 
     RenderingServer *rs = RenderingServer::get_singleton();
+    bool use_gpu = false;
 
-    if (!preview_texture_rid.is_valid() || preview_tex_w != p_width || preview_tex_h != p_height) {
-        if (preview_texture_rid.is_valid()) {
-            rs->free_rid(preview_texture_rid);
+    // Check if any visible clip has effects
+    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
+    Vector<Ref<TimelineTrack>> sorted_tracks;
+    for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
+    struct TrackComparator {
+        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+            return a->get_layer_index() < b->get_layer_index();
         }
-        preview_texture_rid = rs->texture_2d_create(img);
-        preview_tex_w = p_width;
-        preview_tex_h = p_height;
-    } else {
-        // FIX: Godot 4.4.1 texture_2d_update requires 3 arguments: RID, Image, layer
-        rs->texture_2d_update(preview_texture_rid, img, 0);
+    };
+    sorted_tracks.sort_custom<TrackComparator>();
+
+    for (int i = 0; i < sorted_tracks.size(); i++) {
+        Ref<TimelineClip> clip = sorted_tracks[i]->get_clip_at_time(p_time);
+        if (clip.is_null()) continue;
+        if (clip->get_effect_count() > 0) { use_gpu = true; break; }
     }
-    return preview_texture_rid;
+
+    if (!use_gpu) {
+        // No effects: fall back to CPU composite + upload (existing path)
+        Ref<Image> img = render_video_frame(p_time, p_width, p_height);
+        if (img.is_null()) return RID();
+
+        if (!preview_texture_rid.is_valid() || preview_tex_w != p_width || preview_tex_h != p_height) {
+            if (preview_texture_rid.is_valid()) rs->free_rid(preview_texture_rid);
+            preview_texture_rid = rs->texture_2d_create(img);
+            preview_tex_w = p_width;
+            preview_tex_h = p_height;
+        } else {
+            rs->texture_2d_update(preview_texture_rid, img, 0);
+        }
+        return preview_texture_rid;
+    }
+
+    // ---- GPU EFFECTS PATH ----
+    bool seek = _needs_seek(p_time);
+    Vector<RID> temp_textures; // Track RIDs we own and must free
+    Vector<RID> clip_textures;   // Final per-clip textures (may be owned by effects)
+
+    for (int i = 0; i < sorted_tracks.size(); i++) {
+        Ref<TimelineTrack> track = sorted_tracks[i];
+        Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
+        if (clip.is_null()) continue;
+
+        double local_time = p_time - clip->get_timeline_start();
+        double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
+
+        Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
+        if (decoder.is_null()) continue;
+        if (seek) decoder->seek(source_time);
+
+        Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
+        if (frame.is_null()) continue;
+
+        RID frame_tex = rs->texture_2d_create(frame);
+        temp_textures.push_back(frame_tex);
+        RID current_tex = frame_tex;
+
+        // Apply clip effects (GPU path)
+        TypedArray<VideoEffect> fx = clip->get_effects();
+        for (int e = 0; e < fx.size(); e++) {
+            Ref<VideoEffect> effect = fx[e];
+            if (effect.is_null()) continue;
+            RID next_tex = effect->apply_to_texture(rs, current_tex, p_width, p_height);
+            current_tex = next_tex;
+        }
+        clip_textures.push_back(current_tex);
+    }
+
+    last_render_time = p_time;
+
+    if (clip_textures.is_empty()) {
+        if (black_frame.is_null() || black_frame->get_width() != p_width || black_frame->get_height() != p_height) {
+            black_frame = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+            black_frame->fill(Color(0, 0, 0, 1));
+        }
+        RID black_tex = rs->texture_2d_create(black_frame);
+        temp_textures.push_back(black_tex);
+        clip_textures.push_back(black_tex);
+    }
+
+    RID final_tex = _composite_gpu(rs, clip_textures, p_width, p_height);
+
+    // Free temp textures we created (but not viewport textures owned by effects)
+    for (int i = 0; i < temp_textures.size(); i++) {
+        rs->free_rid(temp_textures[i]);
+    }
+
+    return final_tex;
 }
 
 Ref<Image> TimelineRenderer::composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height) {
@@ -286,6 +418,25 @@ PackedFloat32Array TimelineRenderer::mix_audio(const TypedArray<PackedFloat32Arr
     return result;
 }
 
+// ------------------------------------------------------------------
+// CPU Effects helper for export
+// ------------------------------------------------------------------
+
+Ref<Image> TimelineRenderer::_apply_cpu_effects(const Ref<Image> &p_frame, const TypedArray<VideoEffect> &p_effects, int p_width, int p_height) {
+    Ref<Image> result = p_frame;
+    for (int i = 0; i < p_effects.size(); i++) {
+        Ref<VideoEffect> effect = p_effects[i];
+        if (effect.is_null()) continue;
+        result = effect->apply_to_image(result, p_width, p_height);
+        if (result.is_null()) break;
+    }
+    return result;
+}
+
+// ------------------------------------------------------------------
+// Export with CPU effects support
+// ------------------------------------------------------------------
+
 bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate) {
     if (timeline.is_null()) {
         UtilityFunctions::push_error("[TimelineRenderer] No timeline set");
@@ -324,7 +475,57 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
     for (int frame = 0; frame < total_frames; frame++) {
         double time = frame * frame_time;
 
-        Ref<Image> img = render_video_frame(time, p_width, p_height);
+        // ---- Export frame compositor (CPU path with effects) ----
+        TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
+        Vector<Ref<TimelineTrack>> sorted_tracks;
+        for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
+        struct TrackComparator {
+            _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+                return a->get_layer_index() < b->get_layer_index();
+            }
+        };
+        sorted_tracks.sort_custom<TrackComparator>();
+
+        Vector<Ref<Image>> frames;
+        for (int i = 0; i < sorted_tracks.size(); i++) {
+            Ref<TimelineTrack> track = sorted_tracks[i];
+            Ref<TimelineClip> clip = track->get_clip_at_time(time);
+            if (clip.is_null()) continue;
+
+            double local_time = time - clip->get_timeline_start();
+            double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
+
+            Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
+            if (decoder.is_null()) continue;
+            decoder->seek(source_time);
+
+            Ref<Image> raw_frame = decoder->read_video_frame_scaled(p_width, p_height);
+            if (raw_frame.is_null()) continue;
+
+            // Apply CPU effects per-clip
+            if (clip->get_effect_count() > 0) {
+                raw_frame = _apply_cpu_effects(raw_frame, clip->get_effects(), p_width, p_height);
+            }
+
+            frames.push_back(raw_frame);
+        }
+
+        Ref<Image> img;
+        if (frames.is_empty()) {
+            img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+            img->fill(Color(0, 0, 0, 1));
+        } else if (frames.size() == 1) {
+            img = frames[0];
+        } else {
+            img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+            img->fill(Color(0, 0, 0, 1));
+            for (int i = 0; i < frames.size(); i++) {
+                if (frames[i].is_valid()) {
+                    img->blit_rect(frames[i], Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
+                }
+            }
+        }
+
         if (img.is_null()) {
             UtilityFunctions::push_error("[TimelineRenderer] Failed to render frame ", frame);
             encoder->close();
@@ -373,6 +574,8 @@ void TimelineRenderer::clear_cache() {
     preview_texture.unref();
     preview_tex_w = 0;
     preview_tex_h = 0;
+
+    _free_gpu_compositor();
 
     composite_buffer.unref();
     black_frame.unref();
