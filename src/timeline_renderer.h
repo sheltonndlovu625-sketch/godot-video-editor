@@ -10,6 +10,7 @@
 #include "timeline.h"
 #include "video_encoder.h"
 #include "video_decoder.h"
+#include "video_effect.h"
 
 namespace godot {
 
@@ -31,11 +32,26 @@ private:
     Ref<Image> composite_buffer;
     Ref<Image> black_frame;
 
+    // GPU compositor for preview with effects
+    RID comp_viewport;
+    RID comp_canvas;
+    RID comp_canvas_item;
+    int comp_w = 0;
+    int comp_h = 0;
+
     Ref<VideoDecoder> get_decoder(const String &p_path);
     bool _needs_seek(double p_time);
     Ref<Image> composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height);
     Ref<Image> composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height);
     PackedFloat32Array mix_audio(const TypedArray<PackedFloat32Array> &p_buffers);
+
+    // GPU compositor helpers
+    void _ensure_gpu_compositor(RenderingServer *p_rs, int p_width, int p_height);
+    void _free_gpu_compositor();
+    RID _composite_gpu(RenderingServer *p_rs, const Vector<RID> &p_clip_textures, int p_width, int p_height);
+
+    // Export helper: apply CPU effects to a frame
+    Ref<Image> _apply_cpu_effects(const Ref<Image> &p_frame, const TypedArray<VideoEffect> &p_effects, int p_width, int p_height);
 
 protected:
     static void _bind_methods();
