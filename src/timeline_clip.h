@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include "video_effect.h"
 
 namespace godot {
 
@@ -11,11 +12,11 @@ class TimelineClip : public RefCounted {
 
 private:
     String source_path;
-    String proxy_path;
     double timeline_start = 0.0;
     double source_in_point = 0.0;
     double source_out_point = 0.0;
     double playback_speed = 1.0;
+    TypedArray<VideoEffect> effects;
 
 protected:
     static void _bind_methods();
@@ -23,10 +24,6 @@ protected:
 public:
     void set_source_path(const String &p_path);
     String get_source_path() const;
-
-    void set_proxy_path(const String &p_path);
-    String get_proxy_path() const;
-    String get_effective_path(bool p_use_proxy) const;
 
     void set_timeline_start(double p_time);
     double get_timeline_start() const;
@@ -42,6 +39,13 @@ public:
 
     double get_duration() const;
     double get_timeline_end() const;
+
+    // Effects
+    void add_effect(const Ref<VideoEffect> &p_effect);
+    void remove_effect(int p_index);
+    void clear_effects();
+    TypedArray<VideoEffect> get_effects() const;
+    int get_effect_count() const;
 
     TimelineClip();
     ~TimelineClip();
