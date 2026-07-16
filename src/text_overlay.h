@@ -8,6 +8,7 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 #include <godot_cpp/variant/color.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
 
 namespace godot {
 
