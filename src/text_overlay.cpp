@@ -178,7 +178,7 @@ Vector2 TextOverlay::_compute_text_size() const {
     }
     // Use Font::get_string_size for accurate sizing
     // In godot-cpp, get_string_size signature may vary; use basic call
-    Vector2 size = font->get_string_size(text, 0, -1.0f, font_size);
+    Vector2 size = font->get_string_size(text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size);
     return size;
 }
 
