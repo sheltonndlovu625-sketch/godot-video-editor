@@ -11,6 +11,7 @@
 #include "shader_video_effect.h"
 #include "color_correction_effect.h"
 #include "text_overlay.h"
+#include "image_overlay.h"
 #include "caption_segment.h"
 #include "auto_caption_generator.h"
 #include <godot_cpp/core/class_db.hpp>
@@ -38,6 +39,7 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         ClassDB::register_class<ShaderVideoEffect>();
         ClassDB::register_class<ColorCorrectionEffect>();
         ClassDB::register_class<TextOverlay>();
+        ClassDB::register_class<ImageOverlay>();
         ClassDB::register_class<CaptionSegment>();
         ClassDB::register_class<AutoCaptionGenerator>();
     }
