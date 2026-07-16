@@ -14,6 +14,7 @@
 #include "video_decoder.h"
 #include "video_effect.h"
 #include "text_overlay.h"
+#include "image_overlay.h"
 
 namespace godot {
 
@@ -25,24 +26,20 @@ private:
     Dictionary decoders;
     double last_render_time = -1.0;
 
-    // Persistent preview resources
     Ref<ImageTexture> preview_texture;
     RID preview_texture_rid;
     int preview_tex_w = 0;
     int preview_tex_h = 0;
 
-    // Reusable compositing buffers
     Ref<Image> composite_buffer;
     Ref<Image> black_frame;
 
-    // GPU compositor
     RID comp_viewport;
     RID comp_canvas;
     int comp_w = 0;
     int comp_h = 0;
     Vector<RID> layer_items;
 
-    // Cached blend mode materials
     Ref<CanvasItemMaterial> mat_normal;
     Ref<CanvasItemMaterial> mat_add;
     Ref<CanvasItemMaterial> mat_multiply;
@@ -54,7 +51,6 @@ private:
     Ref<Image> composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height);
     PackedFloat32Array mix_audio(const TypedArray<PackedFloat32Array> &p_buffers);
 
-    // GPU compositor helpers
     void _ensure_gpu_compositor(RenderingServer *p_rs, int p_width, int p_height);
     void _free_gpu_compositor();
     void _ensure_layer_items(RenderingServer *p_rs, int p_count);
