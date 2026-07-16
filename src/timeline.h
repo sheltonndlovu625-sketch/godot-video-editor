@@ -6,6 +6,7 @@
 #include <godot_cpp/variant/typed_array.hpp>
 #include "timeline_track.h"
 #include "text_overlay.h"
+#include "image_overlay.h"
 
 namespace godot {
 
@@ -17,6 +18,7 @@ private:
     double playhead_time = 0.0;
     double frame_rate = 30.0;
     TypedArray<TextOverlay> text_overlays;
+    TypedArray<ImageOverlay> image_overlays;
 
 protected:
     static void _bind_methods();
@@ -54,6 +56,15 @@ public:
     Ref<TextOverlay> get_text_overlay(int p_index) const;
     TypedArray<TextOverlay> get_text_overlays_at_time(double p_time) const;
     TypedArray<TextOverlay> get_all_text_overlays() const;
+
+    // Image overlays
+    void add_image_overlay(const Ref<ImageOverlay> &p_overlay);
+    void remove_image_overlay(int p_index);
+    void clear_image_overlays();
+    int get_image_overlay_count() const;
+    Ref<ImageOverlay> get_image_overlay(int p_index) const;
+    TypedArray<ImageOverlay> get_image_overlays_at_time(double p_time) const;
+    TypedArray<ImageOverlay> get_all_image_overlays() const;
 
     Timeline();
     ~Timeline();
