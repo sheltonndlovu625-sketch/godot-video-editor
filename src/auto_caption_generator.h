@@ -3,7 +3,11 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
+#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/color.hpp>
+#include <godot_cpp/classes/font.hpp>
 #include "caption_segment.h"
+#include "text_overlay.h"
 
 namespace godot {
 
