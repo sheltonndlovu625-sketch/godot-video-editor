@@ -35,6 +35,15 @@ void Timeline::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_text_overlay", "index"), &Timeline::get_text_overlay);
     ClassDB::bind_method(D_METHOD("get_text_overlays_at_time", "time"), &Timeline::get_text_overlays_at_time);
     ClassDB::bind_method(D_METHOD("get_all_text_overlays"), &Timeline::get_all_text_overlays);
+
+    // Image overlay bindings
+    ClassDB::bind_method(D_METHOD("add_image_overlay", "overlay"), &Timeline::add_image_overlay);
+    ClassDB::bind_method(D_METHOD("remove_image_overlay", "index"), &Timeline::remove_image_overlay);
+    ClassDB::bind_method(D_METHOD("clear_image_overlays"), &Timeline::clear_image_overlays);
+    ClassDB::bind_method(D_METHOD("get_image_overlay_count"), &Timeline::get_image_overlay_count);
+    ClassDB::bind_method(D_METHOD("get_image_overlay", "index"), &Timeline::get_image_overlay);
+    ClassDB::bind_method(D_METHOD("get_image_overlays_at_time", "time"), &Timeline::get_image_overlays_at_time);
+    ClassDB::bind_method(D_METHOD("get_all_image_overlays"), &Timeline::get_all_image_overlays);
 }
 
 Timeline::Timeline() {}
@@ -115,9 +124,14 @@ double Timeline::get_duration() const {
             max_duration = track_dur;
         }
     }
-    // Also check text overlays
     for (int i = 0; i < text_overlays.size(); i++) {
         Ref<TextOverlay> ov = text_overlays[i];
+        if (ov.is_valid() && ov->get_end_time() > max_duration) {
+            max_duration = ov->get_end_time();
+        }
+    }
+    for (int i = 0; i < image_overlays.size(); i++) {
+        Ref<ImageOverlay> ov = image_overlays[i];
         if (ov.is_valid() && ov->get_end_time() > max_duration) {
             max_duration = ov->get_end_time();
         }
@@ -151,7 +165,7 @@ bool Timeline::is_at_end() const {
     return playhead_time >= get_duration();
 }
 
-// ---- Text overlay implementations ----
+// ---- Text overlays ----
 
 void Timeline::add_text_overlay(const Ref<TextOverlay> &p_overlay) {
     if (p_overlay.is_valid()) {
@@ -193,4 +207,48 @@ TypedArray<TextOverlay> Timeline::get_text_overlays_at_time(double p_time) const
 
 TypedArray<TextOverlay> Timeline::get_all_text_overlays() const {
     return text_overlays;
+}
+
+// ---- Image overlays ----
+
+void Timeline::add_image_overlay(const Ref<ImageOverlay> &p_overlay) {
+    if (p_overlay.is_valid()) {
+        image_overlays.push_back(p_overlay);
+    }
+}
+
+void Timeline::remove_image_overlay(int p_index) {
+    if (p_index >= 0 && p_index < image_overlays.size()) {
+        image_overlays.remove_at(p_index);
+    }
+}
+
+void Timeline::clear_image_overlays() {
+    image_overlays.clear();
+}
+
+int Timeline::get_image_overlay_count() const {
+    return image_overlays.size();
+}
+
+Ref<ImageOverlay> Timeline::get_image_overlay(int p_index) const {
+    if (p_index >= 0 && p_index < image_overlays.size()) {
+        return image_overlays[p_index];
+    }
+    return Ref<ImageOverlay>();
+}
+
+TypedArray<ImageOverlay> Timeline::get_image_overlays_at_time(double p_time) const {
+    TypedArray<ImageOverlay> result;
+    for (int i = 0; i < image_overlays.size(); i++) {
+        Ref<ImageOverlay> ov = image_overlays[i];
+        if (ov.is_valid() && ov->is_visible_at(p_time)) {
+            result.push_back(ov);
+        }
+    }
+    return result;
+}
+
+TypedArray<ImageOverlay> Timeline::get_all_image_overlays() const {
+    return image_overlays;
 }
