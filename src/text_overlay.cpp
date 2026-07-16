@@ -2,6 +2,7 @@
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
+#include <godot_cpp/variant/color.hpp>
 
 using namespace godot;
 
@@ -172,10 +173,11 @@ void TextOverlay::mark_dirty() { text_dirty = true; }
 
 Vector2 TextOverlay::_compute_text_size() const {
     if (font.is_null() || text.is_empty()) {
-        return Vector2(100, font_size);
+        return Vector2(100.0f, (float)font_size);
     }
-    // Use TextServer for accurate sizing
-    Vector2 size = font->get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size);
+    // Use Font::get_string_size for accurate sizing
+    // In godot-cpp, get_string_size signature may vary; use basic call
+    Vector2 size = font->get_string_size(text, 0, -1.0f, font_size);
     return size;
 }
 
@@ -191,10 +193,10 @@ void TextOverlay::_free_text_resources() {
 
 void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
     Vector2 text_size = _compute_text_size();
-    int vw = int(text_size.x + padding.x * 2);
-    int vh = int(text_size.y + padding.y * 2);
-    vw = MAX(vw, 4);
-    vh = MAX(vh, 4);
+    int vw = int(text_size.x + padding.x * 2.0f);
+    int vh = int(text_size.y + padding.y * 2.0f);
+    if (vw < 4) vw = 4;
+    if (vh < 4) vh = 4;
 
     if (text_viewport.is_valid() && cached_text_w == vw && cached_text_h == vh && !text_dirty) {
         return;
@@ -218,17 +220,16 @@ void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
         p_rs->canvas_item_add_rect(text_item, Rect2(0, 0, vw, vh), background_color);
     }
 
-    // Draw shadow (offset copy)
-    if (shadow_color.a > 0.001f && font.is_valid()) {
+    // Draw shadow (offset copy of text)
+    if (shadow_color.a > 0.001f && font.is_valid() && !text.is_empty()) {
         Vector2 shadow_pos = padding + shadow_offset;
-        font->draw_string(text_item, shadow_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, shadow_color);
+        font->draw_string(text_item, shadow_pos, text, 0, -1.0f, font_size, shadow_color, 0, Color(1, 1, 1, 1));
     }
 
-    // Draw outline + main text
-    if (font.is_valid()) {
+    // Draw main text with outline
+    if (font.is_valid() && !text.is_empty()) {
         Vector2 text_pos = padding;
-        font->draw_string(text_item, text_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size,
-            color, outline_size, outline_color);
+        font->draw_string(text_item, text_pos, text, 0, -1.0f, font_size, color, outline_size, outline_color);
     }
 
     cached_text_w = vw;
@@ -257,33 +258,30 @@ void TextOverlay::_apply_animation(double p_local_time, float &r_opacity, Vector
         }
         case ANIM_SLIDE_IN_LEFT: {
             float ease = 1.0f - Math::pow(1.0f - (float)t, 3.0f);
-            r_position_offset.x = -cached_text_w * (1.0f - ease);
+            r_position_offset.x = -(float)cached_text_w * (1.0f - ease);
             break;
         }
         case ANIM_SLIDE_IN_RIGHT: {
             float ease = 1.0f - Math::pow(1.0f - (float)t, 3.0f);
-            r_position_offset.x = cached_text_w * (1.0f - ease);
+            r_position_offset.x = (float)cached_text_w * (1.0f - ease);
             break;
         }
         case ANIM_SLIDE_IN_TOP: {
             float ease = 1.0f - Math::pow(1.0f - (float)t, 3.0f);
-            r_position_offset.y = -cached_text_h * (1.0f - ease);
+            r_position_offset.y = -(float)cached_text_h * (1.0f - ease);
             break;
         }
         case ANIM_SLIDE_IN_BOTTOM: {
             float ease = 1.0f - Math::pow(1.0f - (float)t, 3.0f);
-            r_position_offset.y = cached_text_h * (1.0f - ease);
+            r_position_offset.y = (float)cached_text_h * (1.0f - ease);
             break;
         }
         case ANIM_BOUNCE: {
-            // Simple damped sine bounce
             float bounce = Math::sin((float)t * Math_PI * 4.0f) * Math::exp(-(float)t * 4.0f);
             r_position_offset.y = bounce * 20.0f;
             break;
         }
         case ANIM_TYPEWRITER: {
-            // Typewriter is handled by text content modification, not transform
-            // For now, just fade in as approximation
             r_opacity = opacity * (float)t;
             break;
         }
@@ -305,23 +303,12 @@ RID TextOverlay::render_to_rid(RenderingServer *p_rs, int p_canvas_w, int p_canv
     Vector2 anim_offset;
     _apply_animation(local_time, anim_opacity, anim_offset);
 
-    // Compute final transform with anchor
     Vector2 final_pos = position + anim_offset;
-    Vector2 anchor_offset = Vector2(anchor_point.x * cached_text_w, anchor_point.y * cached_text_h);
+    Vector2 anchor_offset = Vector2(anchor_point.x * (float)cached_text_w, anchor_point.y * (float)cached_text_h);
     final_pos -= anchor_offset;
 
-    // Clamp to canvas bounds (optional, but keeps text on screen)
-    // final_pos.x = CLAMP(final_pos.x, 0.0f, float(p_canvas_w - cached_text_w));
-    // final_pos.y = CLAMP(final_pos.y, 0.0f, float(p_canvas_h - cached_text_h));
-
-    // Apply opacity via self_modulate on the canvas item
     Color modulate = Color(1.0f, 1.0f, 1.0f, anim_opacity);
     p_rs->canvas_item_set_self_modulate(text_item, modulate);
-
-    // Note: position is handled by the compositor (TimelineRenderer) via transform,
-    // not by the text viewport itself. The text viewport renders the text texture
-    // at (0,0) with its own size. The compositor positions it.
-    // So we return the viewport texture and let the compositor handle position.
 
     p_rs->viewport_set_update_mode(text_viewport, RenderingServer::VIEWPORT_UPDATE_ONCE);
     return p_rs->viewport_get_texture(text_viewport);
@@ -336,7 +323,6 @@ Ref<Image> TextOverlay::render_to_image() {
 
     p_rs->viewport_set_update_mode(text_viewport, RenderingServer::VIEWPORT_UPDATE_ONCE);
 
-    // Readback — may be stale if frame hasn't rendered yet
     RID tex = p_rs->viewport_get_texture(text_viewport);
     return p_rs->texture_2d_get(tex);
 }
