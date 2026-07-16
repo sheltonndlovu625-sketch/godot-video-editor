@@ -1,5 +1,6 @@
 #include "text_overlay.h"
 #include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
 #include <godot_cpp/variant/color.hpp>
@@ -223,7 +224,7 @@ void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
     // Draw shadow (offset copy)
     if (shadow_color.a > 0.001f && font.is_valid() && !text.is_empty()) {
         Vector2 shadow_pos = padding + shadow_offset;
-        font->draw_string(text_item, shadow_pos, text, 0, -1.0f, font_size, shadow_color);
+        font->draw_string(text_item, shadow_pos, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, shadow_color);
     }
 
     // Draw outline manually (4 offset copies in outline color)
@@ -232,14 +233,14 @@ void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
             for (int oy = -outline_size; oy <= outline_size; oy++) {
                 if (ox == 0 && oy == 0) continue;
                 Vector2 outline_pos = padding + Vector2((float)ox, (float)oy);
-                font->draw_string(text_item, outline_pos, text, 0, -1.0f, font_size, outline_color);
+                font->draw_string(text_item, outline_pos, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, outline_color);
             }
         }
     }
 
     // Draw main text
     if (font.is_valid() && !text.is_empty()) {
-        font->draw_string(text_item, padding, text, 0, -1.0f, font_size, color);
+        font->draw_string(text_item, padding, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, color);
     }
 
     cached_text_w = vw;
