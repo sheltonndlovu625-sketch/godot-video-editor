@@ -220,16 +220,26 @@ void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
         p_rs->canvas_item_add_rect(text_item, Rect2(0, 0, vw, vh), background_color);
     }
 
-    // Draw shadow (offset copy of text)
+    // Draw shadow (offset copy)
     if (shadow_color.a > 0.001f && font.is_valid() && !text.is_empty()) {
         Vector2 shadow_pos = padding + shadow_offset;
-        font->draw_string(text_item, shadow_pos, text, 0, -1.0f, font_size, shadow_color, 0, Color(1, 1, 1, 1));
+        font->draw_string(text_item, shadow_pos, text, 0, -1.0f, font_size, shadow_color);
     }
 
-    // Draw main text with outline
+    // Draw outline manually (4 offset copies in outline color)
+    if (outline_size > 0 && outline_color.a > 0.001f && font.is_valid() && !text.is_empty()) {
+        for (int ox = -outline_size; ox <= outline_size; ox++) {
+            for (int oy = -outline_size; oy <= outline_size; oy++) {
+                if (ox == 0 && oy == 0) continue;
+                Vector2 outline_pos = padding + Vector2((float)ox, (float)oy);
+                font->draw_string(text_item, outline_pos, text, 0, -1.0f, font_size, outline_color);
+            }
+        }
+    }
+
+    // Draw main text
     if (font.is_valid() && !text.is_empty()) {
-        Vector2 text_pos = padding;
-        font->draw_string(text_item, text_pos, text, 0, -1.0f, font_size, color, outline_size, outline_color);
+        font->draw_string(text_item, padding, text, 0, -1.0f, font_size, color);
     }
 
     cached_text_w = vw;
