@@ -7,6 +7,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/templates/vector.hpp>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -39,7 +40,6 @@ private:
     int scaled_height = 0;
     SwsContext *sws_ctx_scaled = nullptr;
 
-    // Track source format so we can recreate sws if it changes
     enum AVPixelFormat sws_src_fmt = AV_PIX_FMT_NONE;
     enum AVPixelFormat sws_scaled_src_fmt = AV_PIX_FMT_NONE;
 
@@ -67,6 +67,13 @@ private:
     bool use_hwaccel = false;
     bool eof_reached = false;
     enum AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
+
+    // Packet queues so we never drop interleaved packets
+    Vector<AVPacket*> video_packet_queue;
+    Vector<AVPacket*> audio_packet_queue;
+
+    void _queue_packet(AVPacket *p_packet);
+    void _flush_packet_queues();
 
     Ref<Image> _decode_one_frame(int p_width, int p_height, SwsContext *&r_sws,
                                  enum AVPixelFormat &r_last_src_fmt, Ref<Image> p_target);
