@@ -68,7 +68,6 @@ private:
     bool eof_reached = false;
     enum AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
 
-    // Packet queues so we never drop interleaved packets
     Vector<AVPacket*> video_packet_queue;
     Vector<AVPacket*> audio_packet_queue;
 
