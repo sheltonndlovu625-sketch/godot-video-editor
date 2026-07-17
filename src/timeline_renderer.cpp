@@ -12,19 +12,24 @@ void TimelineRenderer::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_timeline"), &TimelineRenderer::get_timeline);
     ClassDB::add_property("TimelineRenderer", PropertyInfo(Variant::OBJECT, "timeline"), "set_timeline", "get_timeline");
 
+    ClassDB::bind_method(D_METHOD("set_aspect_ratio_mode", "mode"), &TimelineRenderer::set_aspect_ratio_mode);
+    ClassDB::bind_method(D_METHOD("get_aspect_ratio_mode"), &TimelineRenderer::get_aspect_ratio_mode);
+    ClassDB::add_property("TimelineRenderer", PropertyInfo(Variant::INT, "aspect_ratio_mode"), "set_aspect_ratio_mode", "get_aspect_ratio_mode");
+
     ClassDB::bind_method(D_METHOD("render_video_frame", "time", "width", "height"), &TimelineRenderer::render_video_frame);
     ClassDB::bind_method(D_METHOD("render_video_frame_to_texture", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_texture);
     ClassDB::bind_method(D_METHOD("render_video_frame_to_rid", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_rid);
     ClassDB::bind_method(D_METHOD("render_audio", "time", "num_samples", "sample_rate"), &TimelineRenderer::render_audio);
     ClassDB::bind_method(D_METHOD("export_to_file", "path", "width", "height", "fps", "video_bitrate", "sample_rate", "audio_bitrate"), &TimelineRenderer::export_to_file);
     ClassDB::bind_method(D_METHOD("clear_cache"), &TimelineRenderer::clear_cache);
+
+    BIND_ENUM_CONSTANT(ASPECT_FILL);
+    BIND_ENUM_CONSTANT(ASPECT_FIT);
+    BIND_ENUM_CONSTANT(ASPECT_STRETCH);
 }
 
 TimelineRenderer::TimelineRenderer() {}
-
-TimelineRenderer::~TimelineRenderer() {
-    clear_cache();
-}
+TimelineRenderer::~TimelineRenderer() { clear_cache(); }
 
 void TimelineRenderer::set_timeline(const Ref<Timeline> &p_timeline) {
     timeline = p_timeline;
@@ -33,6 +38,14 @@ void TimelineRenderer::set_timeline(const Ref<Timeline> &p_timeline) {
 
 Ref<Timeline> TimelineRenderer::get_timeline() const {
     return timeline;
+}
+
+void TimelineRenderer::set_aspect_ratio_mode(int p_mode) {
+    aspect_ratio_mode = (AspectRatioMode)p_mode;
+}
+
+int TimelineRenderer::get_aspect_ratio_mode() const {
+    return (int)aspect_ratio_mode;
 }
 
 Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
@@ -66,7 +79,310 @@ bool TimelineRenderer::_needs_seek(double p_time) {
 }
 
 // ------------------------------------------------------------------
-// CPU path
+// CPU compositing helpers (fast, no GPU)
+// ------------------------------------------------------------------
+
+Vector2i TimelineRenderer::_get_decode_size(int p_src_w, int p_src_h, int p_dst_w, int p_dst_h) const {
+    if (aspect_ratio_mode == ASPECT_STRETCH || p_src_w <= 0 || p_src_h <= 0) {
+        return Vector2i(p_dst_w, p_dst_h);
+    }
+
+    float src_ratio = (float)p_src_w / (float)p_src_h;
+    float dst_ratio = (float)p_dst_w / (float)p_dst_h;
+
+    if (aspect_ratio_mode == ASPECT_FILL) {
+        if (src_ratio > dst_ratio) {
+            int h = p_dst_h;
+            int w = Math::round((float)h * src_ratio);
+            return Vector2i(w, h);
+        } else {
+            int w = p_dst_w;
+            int h = Math::round((float)w / src_ratio);
+            return Vector2i(w, h);
+        }
+    } else {
+        if (src_ratio > dst_ratio) {
+            int w = p_dst_w;
+            int h = Math::round((float)w / src_ratio);
+            return Vector2i(w, h);
+        } else {
+            int h = p_dst_h;
+            int w = Math::round((float)h * src_ratio);
+            return Vector2i(w, h);
+        }
+    }
+}
+
+static inline uint8_t _clamp_u8(int v) {
+    if (v < 0) return 0;
+    if (v > 255) return 255;
+    return (uint8_t)v;
+}
+
+void TimelineRenderer::_cpu_blit_normal(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity) {
+    int src_w = p_src->get_width();
+    int src_h = p_src->get_height();
+    int dst_w = p_dst->get_width();
+    int dst_h = p_dst->get_height();
+
+    int x0 = MAX(0, -p_dx);
+    int y0 = MAX(0, -p_dy);
+    int x1 = MIN(src_w, dst_w - p_dx);
+    int y1 = MIN(src_h, dst_h - p_dy);
+    if (x0 >= x1 || y0 >= y1) return;
+
+    uint8_t *dst_data = p_dst->ptrw();
+    const uint8_t *src_data = p_src->ptr();
+    int dst_stride = dst_w * 4;
+    int src_stride = src_w * 4;
+
+    for (int y = y0; y < y1; y++) {
+        uint8_t *drow = dst_data + ((p_dy + y) * dst_stride) + (p_dx + x0) * 4;
+        const uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
+        for (int x = x0; x < x1; x++) {
+            float sa = (srow[3] / 255.0f) * p_opacity;
+            if (sa < 0.001f) {
+                drow += 4; srow += 4;
+                continue;
+            }
+            float da = drow[3] / 255.0f;
+            float out_a = sa + da * (1.0f - sa);
+            if (out_a > 0.001f) {
+                drow[0] = _clamp_u8((int)((srow[0] * sa + drow[0] * da * (1.0f - sa)) / out_a));
+                drow[1] = _clamp_u8((int)((srow[1] * sa + drow[1] * da * (1.0f - sa)) / out_a));
+                drow[2] = _clamp_u8((int)((srow[2] * sa + drow[2] * da * (1.0f - sa)) / out_a));
+                drow[3] = _clamp_u8((int)(out_a * 255.0f));
+            }
+            drow += 4; srow += 4;
+        }
+    }
+}
+
+void TimelineRenderer::_cpu_blit_add(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity) {
+    int src_w = p_src->get_width();
+    int src_h = p_src->get_height();
+    int dst_w = p_dst->get_width();
+    int dst_h = p_dst->get_height();
+
+    int x0 = MAX(0, -p_dx);
+    int y0 = MAX(0, -p_dy);
+    int x1 = MIN(src_w, dst_w - p_dx);
+    int y1 = MIN(src_h, dst_h - p_dy);
+    if (x0 >= x1 || y0 >= y1) return;
+
+    uint8_t *dst_data = p_dst->ptrw();
+    const uint8_t *src_data = p_src->ptr();
+    int dst_stride = dst_w * 4;
+    int src_stride = src_w * 4;
+
+    for (int y = y0; y < y1; y++) {
+        uint8_t *drow = dst_data + ((p_dy + y) * dst_stride) + (p_dx + x0) * 4;
+        const uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
+        for (int x = x0; x < x1; x++) {
+            float sa = (srow[3] / 255.0f) * p_opacity;
+            if (sa > 0.001f) {
+                drow[0] = _clamp_u8(drow[0] + (int)(srow[0] * sa));
+                drow[1] = _clamp_u8(drow[1] + (int)(srow[1] * sa));
+                drow[2] = _clamp_u8(drow[2] + (int)(srow[2] * sa));
+                drow[3] = _clamp_u8(drow[3] + (int)(srow[3] * p_opacity));
+            }
+            drow += 4; srow += 4;
+        }
+    }
+}
+
+void TimelineRenderer::_cpu_blit_multiply(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity) {
+    int src_w = p_src->get_width();
+    int src_h = p_src->get_height();
+    int dst_w = p_dst->get_width();
+    int dst_h = p_dst->get_height();
+
+    int x0 = MAX(0, -p_dx);
+    int y0 = MAX(0, -p_dy);
+    int x1 = MIN(src_w, dst_w - p_dx);
+    int y1 = MIN(src_h, dst_h - p_dy);
+    if (x0 >= x1 || y0 >= y1) return;
+
+    uint8_t *dst_data = p_dst->ptrw();
+    const uint8_t *src_data = p_src->ptr();
+    int dst_stride = dst_w * 4;
+    int src_stride = src_w * 4;
+
+    for (int y = y0; y < y1; y++) {
+        uint8_t *drow = dst_data + ((p_dy + y) * dst_stride) + (p_dx + x0) * 4;
+        const uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
+        for (int x = x0; x < x1; x++) {
+            float sa = (srow[3] / 255.0f) * p_opacity;
+            if (sa > 0.001f) {
+                drow[0] = _clamp_u8((int)((drow[0] * (srow[0] * sa + (255 - srow[0]) * (1.0f - sa))) / 255.0f));
+                drow[1] = _clamp_u8((int)((drow[1] * (srow[1] * sa + (255 - srow[1]) * (1.0f - sa))) / 255.0f));
+                drow[2] = _clamp_u8((int)((drow[2] * (srow[2] * sa + (255 - srow[2]) * (1.0f - sa))) / 255.0f));
+            }
+            drow += 4; srow += 4;
+        }
+    }
+}
+
+void TimelineRenderer::_cpu_blit_subtract(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity) {
+    int src_w = p_src->get_width();
+    int src_h = p_src->get_height();
+    int dst_w = p_dst->get_width();
+    int dst_h = p_dst->get_height();
+
+    int x0 = MAX(0, -p_dx);
+    int y0 = MAX(0, -p_dy);
+    int x1 = MIN(src_w, dst_w - p_dx);
+    int y1 = MIN(src_h, dst_h - p_dy);
+    if (x0 >= x1 || y0 >= y1) return;
+
+    uint8_t *dst_data = p_dst->ptrw();
+    const uint8_t *src_data = p_src->ptr();
+    int dst_stride = dst_w * 4;
+    int src_stride = src_w * 4;
+
+    for (int y = y0; y < y1; y++) {
+        uint8_t *drow = dst_data + ((p_dy + y) * dst_stride) + (p_dx + x0) * 4;
+        const uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
+        for (int x = x0; x < x1; x++) {
+            float sa = (srow[3] / 255.0f) * p_opacity;
+            if (sa > 0.001f) {
+                drow[0] = _clamp_u8(drow[0] - (int)(srow[0] * sa));
+                drow[1] = _clamp_u8(drow[1] - (int)(srow[1] * sa));
+                drow[2] = _clamp_u8(drow[2] - (int)(srow[2] * sa));
+            }
+            drow += 4; srow += 4;
+        }
+    }
+}
+
+void TimelineRenderer::_cpu_blit(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity, int p_blend_mode) {
+    switch (p_blend_mode) {
+        case TimelineTrack::BLEND_MODE_ADD:
+            _cpu_blit_add(p_dst, p_src, p_dx, p_dy, p_opacity);
+            break;
+        case TimelineTrack::BLEND_MODE_MULTIPLY:
+            _cpu_blit_multiply(p_dst, p_src, p_dx, p_dy, p_opacity);
+            break;
+        case TimelineTrack::BLEND_MODE_SUBTRACT:
+            _cpu_blit_subtract(p_dst, p_src, p_dx, p_dy, p_opacity);
+            break;
+        case TimelineTrack::BLEND_MODE_NORMAL:
+        default:
+            _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity);
+            break;
+    }
+}
+
+Ref<Image> TimelineRenderer::_cpu_render_text_overlay(const Ref<TextOverlay> &p_overlay, int p_canvas_w, int p_canvas_h, double p_time) {
+    return p_overlay->render_to_image();
+}
+
+Ref<Image> TimelineRenderer::_cpu_render_image_overlay(const Ref<ImageOverlay> &p_overlay, int p_canvas_w, int p_canvas_h, double p_time) {
+    if (Math::abs(p_overlay->get_rotation()) > 0.001f) {
+        RenderingServer *rs = RenderingServer::get_singleton();
+        if (rs) {
+            RID rid = p_overlay->render_to_rid(rs, p_canvas_w, p_canvas_h, p_time);
+            if (rid.is_valid()) {
+                return rs->texture_2d_get(rid);
+            }
+        }
+    }
+    return p_overlay->render_to_image();
+}
+
+Ref<Image> TimelineRenderer::_cpu_composite_frame(double p_time, int p_width, int p_height) {
+    Ref<Image> result = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+    result->fill(Color(0, 0, 0, 1));
+
+    bool seek = _needs_seek(p_time);
+
+    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
+    Vector<Ref<TimelineTrack>> sorted_tracks;
+    for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
+    struct TrackComparator {
+        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+            return a->get_layer_index() < b->get_layer_index();
+        }
+    };
+    sorted_tracks.sort_custom<TrackComparator>();
+
+    for (int i = 0; i < sorted_tracks.size(); i++) {
+        Ref<TimelineTrack> track = sorted_tracks[i];
+        Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
+        if (clip.is_null()) continue;
+
+        double local_time = p_time - clip->get_timeline_start();
+        double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
+
+        Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
+        if (decoder.is_null()) continue;
+        if (seek) decoder->seek(source_time);
+
+        int src_w = decoder->get_video_width();
+        int src_h = decoder->get_video_height();
+        Vector2i decode_size = _get_decode_size(src_w, src_h, p_width, p_height);
+
+        Ref<Image> frame = decoder->read_video_frame_scaled(decode_size.x, decode_size.y);
+        if (frame.is_null()) continue;
+
+        if (clip->get_effect_count() > 0) {
+            frame = _apply_cpu_effects(frame, clip->get_effects(), decode_size.x, decode_size.y);
+        }
+
+        int blit_x = (p_width - decode_size.x) / 2 + (int)clip->get_position().x;
+        int blit_y = (p_height - decode_size.y) / 2 + (int)clip->get_position().y;
+
+        Vector2 anchor = clip->get_anchor_point();
+        blit_x -= (int)(anchor.x * decode_size.x);
+        blit_y -= (int)(anchor.y * decode_size.y);
+
+        _cpu_blit(result.ptr(), frame.ptr(), blit_x, blit_y, clip->get_opacity(), track->get_blend_mode());
+    }
+
+    TypedArray<ImageOverlay> img_overlays = timeline->get_image_overlays_at_time(p_time);
+    for (int i = 0; i < img_overlays.size(); i++) {
+        Ref<ImageOverlay> ov = img_overlays[i];
+        if (ov.is_null()) continue;
+
+        Ref<Image> img = _cpu_render_image_overlay(ov, p_width, p_height, p_time);
+        if (img.is_null()) continue;
+
+        Vector2 img_size = ov->get_image_size();
+        Vector2 pos = ov->get_position();
+        Vector2 anchor = ov->get_anchor_point();
+        float opacity = ov->get_opacity();
+
+        int blit_x = (int)pos.x - (int)(anchor.x * img_size.x);
+        int blit_y = (int)pos.y - (int)(anchor.y * img_size.y);
+
+        _cpu_blit_normal(result.ptr(), img.ptr(), blit_x, blit_y, opacity);
+    }
+
+    TypedArray<TextOverlay> text_overlays = timeline->get_text_overlays_at_time(p_time);
+    for (int i = 0; i < text_overlays.size(); i++) {
+        Ref<TextOverlay> ov = text_overlays[i];
+        if (ov.is_null()) continue;
+
+        Ref<Image> text_img = _cpu_render_text_overlay(ov, p_width, p_height, p_time);
+        if (text_img.is_null()) continue;
+
+        Vector2 text_size = ov->get_render_size();
+        Vector2 pos = ov->get_position();
+        Vector2 anchor = ov->get_anchor_point();
+        float opacity = ov->get_opacity();
+
+        int blit_x = (int)pos.x - (int)(anchor.x * text_size.x);
+        int blit_y = (int)pos.y - (int)(anchor.y * text_size.y);
+
+        _cpu_blit_normal(result.ptr(), text_img.ptr(), blit_x, blit_y, opacity);
+    }
+
+    last_render_time = p_time;
+    return result;
+}
+
+// ------------------------------------------------------------------
+// CPU path (fallback / audio)
 // ------------------------------------------------------------------
 
 Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
@@ -164,7 +480,7 @@ Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time,
 }
 
 // ------------------------------------------------------------------
-// GPU Compositor Infrastructure
+// GPU Compositor Infrastructure (preview only)
 // ------------------------------------------------------------------
 
 void TimelineRenderer::_ensure_gpu_compositor(RenderingServer *p_rs, int p_width, int p_height) {
@@ -286,7 +602,7 @@ RID TimelineRenderer::_composite_gpu_with_transforms(RenderingServer *p_rs,
 }
 
 // ------------------------------------------------------------------
-// GPU + Effects + Transforms + Blend Modes + Text Overlays Preview Path
+// GPU Preview Path (unchanged, with image overlays + text)
 // ------------------------------------------------------------------
 
 RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int p_height) {
@@ -294,7 +610,6 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
 
     RenderingServer *rs = RenderingServer::get_singleton();
 
-    // Get sorted video tracks
     TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
     Vector<Ref<TimelineTrack>> sorted_tracks;
     for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
@@ -307,12 +622,11 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
 
     bool seek = _needs_seek(p_time);
 
-    // ---- Collect video clip layers ----
     Vector<RID> clip_textures;
     Vector<Transform2D> clip_transforms;
     Vector<int> clip_blend_modes;
     Vector<float> clip_opacities;
-    Vector<RID> temp_textures; // Track for cleanup
+    Vector<RID> temp_textures;
 
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
@@ -333,18 +647,18 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         temp_textures.push_back(frame_tex);
         RID current_tex = frame_tex;
 
-        // Apply clip effects (GPU path)
         TypedArray<VideoEffect> fx = clip->get_effects();
         for (int e = 0; e < fx.size(); e++) {
             Ref<VideoEffect> effect = fx[e];
             if (effect.is_null()) continue;
             RID next_tex = effect->apply_to_texture(rs, current_tex, p_width, p_height);
-            current_tex = next_tex;
+            if (next_tex.is_valid()) {
+                current_tex = next_tex;
+            }
         }
 
         clip_textures.push_back(current_tex);
 
-        // Build Transform2D from clip properties
         float rot = clip->get_rotation();
         Vector2 scl = clip->get_scale();
         Vector2 pos = clip->get_position();
@@ -353,7 +667,7 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         Transform2D t;
         t[0] = Vector2(Math::cos(rot), Math::sin(rot)) * scl.x;
         t[1] = Vector2(-Math::sin(rot), Math::cos(rot)) * scl.y;
-        Vector2 anchor_offset = Vector2(anchor.x * p_width, anchor.y * p_height);
+        Vector2 anchor_offset = Vector2(anchor.x * (float)p_width, anchor.y * (float)p_height);
         t[2] = pos - (t[0] * anchor_offset.x + t[1] * anchor_offset.y);
 
         clip_transforms.push_back(t);
@@ -361,7 +675,33 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         clip_opacities.push_back(clip->get_opacity());
     }
 
-    // ---- Collect text overlay layers (on top of video) ----
+    TypedArray<ImageOverlay> image_overlays = timeline->get_image_overlays_at_time(p_time);
+    for (int i = 0; i < image_overlays.size(); i++) {
+        Ref<ImageOverlay> ov = image_overlays[i];
+        if (ov.is_null()) continue;
+
+        RID img_tex = ov->render_to_rid(rs, p_width, p_height, p_time);
+        if (!img_tex.is_valid()) continue;
+
+        clip_textures.push_back(img_tex);
+
+        float rot = ov->get_rotation();
+        Vector2 scl = ov->get_scale();
+        Vector2 pos = ov->get_position();
+        Vector2 anchor = ov->get_anchor_point();
+        Vector2 img_size = ov->get_image_size();
+
+        Transform2D t;
+        t[0] = Vector2(Math::cos(rot), Math::sin(rot)) * scl.x;
+        t[1] = Vector2(-Math::sin(rot), Math::cos(rot)) * scl.y;
+        Vector2 anchor_offset = Vector2(anchor.x * img_size.x, anchor.y * img_size.y);
+        t[2] = pos - (t[0] * anchor_offset.x + t[1] * anchor_offset.y);
+
+        clip_transforms.push_back(t);
+        clip_blend_modes.push_back(TimelineTrack::BLEND_MODE_NORMAL);
+        clip_opacities.push_back(ov->get_opacity());
+    }
+
     TypedArray<TextOverlay> text_overlays = timeline->get_text_overlays_at_time(p_time);
     for (int i = 0; i < text_overlays.size(); i++) {
         Ref<TextOverlay> ov = text_overlays[i];
@@ -372,29 +712,16 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
 
         clip_textures.push_back(text_tex);
 
-        // Text overlay transform
         Vector2 pos = ov->get_position();
         Vector2 anchor = ov->get_anchor_point();
         float opacity = ov->get_opacity();
-
-        // Apply animation
-        float anim_opacity;
-        Vector2 anim_offset;
-        double local_time = p_time - ov->get_start_time();
-        // We need to call _apply_animation but it's private. Instead, we approximate here.
-        // For preview, the text overlay's render_to_rid handles the viewport texture.
-        // Position/opacity animation should be handled by the compositor.
-        // For simplicity, we use the base position and opacity here.
-        // Full animation support would require exposing animation state from TextOverlay.
+        Vector2 text_size = ov->get_render_size();
 
         Transform2D t;
         t[0] = Vector2(1, 0);
         t[1] = Vector2(0, 1);
-        // Anchor offset: text overlays render at their own viewport size, not canvas size
-        // So we position them directly at pos - anchor * text_size
-        // But we don't know text_size here easily. We'll use pos directly and let anchor
-        // be handled by the compositor offset.
-        t[2] = pos;
+        Vector2 anchor_offset = Vector2(anchor.x * text_size.x, anchor.y * text_size.y);
+        t[2] = pos - anchor_offset;
 
         clip_transforms.push_back(t);
         clip_blend_modes.push_back(TimelineTrack::BLEND_MODE_NORMAL);
@@ -420,7 +747,6 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         clip_textures, clip_transforms, clip_blend_modes, clip_opacities,
         p_width, p_height);
 
-    // Free temp textures we created (frame uploads)
     for (int i = 0; i < temp_textures.size(); i++) {
         rs->free_rid(temp_textures[i]);
     }
@@ -428,32 +754,79 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
     return final_tex;
 }
 
-Ref<Image> TimelineRenderer::composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height) {
-    if (p_frames.is_empty()) {
-        return Ref<Image>();
+// ------------------------------------------------------------------
+// Export to file (CPU path, mobile-safe)
+// ------------------------------------------------------------------
+
+bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate) {
+    if (timeline.is_null()) {
+        UtilityFunctions::push_error("[TimelineRenderer] No timeline set");
+        return false;
     }
 
-    Ref<Image> result = p_frames[0]->duplicate();
-    if (p_frames.size() == 1) {
-        return result;
+    double duration = timeline->get_duration();
+    if (duration <= 0.0) {
+        UtilityFunctions::push_error("[TimelineRenderer] Timeline has no content");
+        return false;
     }
 
-    for (int i = 1; i < p_frames.size(); i++) {
-        Ref<Image> top = p_frames[i];
-        if (top.is_null()) continue;
-        result->blit_rect(top, Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
+    Ref<VideoEncoder> encoder;
+    encoder.instantiate();
+
+    bool has_audio_tracks = timeline->get_audio_tracks().size() > 0;
+    bool ok = has_audio_tracks
+        ? encoder->open_with_audio(p_path, p_width, p_height, p_fps, p_video_bitrate, p_sample_rate, 2, p_audio_bitrate)
+        : encoder->open(p_path, p_width, p_height, p_fps, p_video_bitrate);
+
+    if (!ok) {
+        UtilityFunctions::push_error("[TimelineRenderer] Failed to open encoder");
+        return false;
     }
 
-    return result;
+    int total_frames = int(duration * p_fps) + 1;
+    double frame_time = 1.0 / p_fps;
+    int audio_samples_per_frame = p_sample_rate / p_fps;
+
+    UtilityFunctions::print("[TimelineRenderer] CPU Exporting ", total_frames, " frames at ", p_width, "x", p_height, "...");
+
+    for (int frame = 0; frame < total_frames; frame++) {
+        double time = frame * frame_time;
+
+        Ref<Image> img = _cpu_composite_frame(time, p_width, p_height);
+        if (img.is_null()) {
+            UtilityFunctions::push_error("[TimelineRenderer] Failed to render frame ", frame);
+            encoder->close();
+            return false;
+        }
+
+        if (!encoder->write_frame(img)) {
+            UtilityFunctions::push_error("[TimelineRenderer] Failed to write frame ", frame);
+            encoder->close();
+            return false;
+        }
+
+        if (has_audio_tracks) {
+            PackedFloat32Array audio = render_audio(time, audio_samples_per_frame, p_sample_rate);
+            if (audio.size() > 0) {
+                encoder->write_audio(audio);
+            }
+        }
+
+        if (frame % 30 == 0) {
+            UtilityFunctions::print("  Exported frame ", frame, "/", total_frames);
+        }
+    }
+
+    encoder->close();
+    clear_cache();
+
+    UtilityFunctions::print("[TimelineRenderer] Export complete: ", p_path);
+    return true;
 }
 
-Ref<Image> TimelineRenderer::composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height) {
-    Vector<Ref<Image>> vec;
-    for (int i = 0; i < p_frames.size(); i++) {
-        vec.push_back(p_frames[i]);
-    }
-    return composite_frames_fast(vec, p_width, p_height);
-}
+// ------------------------------------------------------------------
+// Audio
+// ------------------------------------------------------------------
 
 PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_samples, int p_sample_rate) {
     PackedFloat32Array result;
@@ -529,10 +902,6 @@ PackedFloat32Array TimelineRenderer::mix_audio(const TypedArray<PackedFloat32Arr
     return result;
 }
 
-// ------------------------------------------------------------------
-// CPU Effects helper for export
-// ------------------------------------------------------------------
-
 Ref<Image> TimelineRenderer::_apply_cpu_effects(const Ref<Image> &p_frame, const TypedArray<VideoEffect> &p_effects, int p_width, int p_height) {
     Ref<Image> result = p_frame;
     for (int i = 0; i < p_effects.size(); i++) {
@@ -544,185 +913,31 @@ Ref<Image> TimelineRenderer::_apply_cpu_effects(const Ref<Image> &p_frame, const
     return result;
 }
 
-// ------------------------------------------------------------------
-// Export with CPU effects + text overlay support
-// ------------------------------------------------------------------
-
-bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate) {
-    if (timeline.is_null()) {
-        UtilityFunctions::push_error("[TimelineRenderer] No timeline set");
-        return false;
+Ref<Image> TimelineRenderer::composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height) {
+    if (p_frames.is_empty()) {
+        return Ref<Image>();
     }
 
-    double duration = timeline->get_duration();
-    if (duration <= 0.0) {
-        UtilityFunctions::push_error("[TimelineRenderer] Timeline has no content");
-        return false;
+    Ref<Image> result = p_frames[0]->duplicate();
+    if (p_frames.size() == 1) {
+        return result;
     }
 
-    Ref<VideoEncoder> encoder;
-    encoder.instantiate();
-
-    bool has_audio = timeline->get_audio_tracks().size() > 0;
-    bool ok;
-
-    if (has_audio) {
-        ok = encoder->open_with_audio(p_path, p_width, p_height, p_fps, p_video_bitrate, p_sample_rate, 2, p_audio_bitrate);
-    } else {
-        ok = encoder->open(p_path, p_width, p_height, p_fps, p_video_bitrate);
+    for (int i = 1; i < p_frames.size(); i++) {
+        Ref<Image> top = p_frames[i];
+        if (top.is_null()) continue;
+        result->blit_rect(top, Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
     }
 
-    if (!ok) {
-        UtilityFunctions::push_error("[TimelineRenderer] Failed to open encoder");
-        return false;
+    return result;
+}
+
+Ref<Image> TimelineRenderer::composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height) {
+    Vector<Ref<Image>> vec;
+    for (int i = 0; i < p_frames.size(); i++) {
+        vec.push_back(p_frames[i]);
     }
-
-    int total_frames = int(duration * p_fps) + 1;
-    double frame_time = 1.0 / p_fps;
-    int audio_samples_per_frame = p_sample_rate / p_fps;
-
-    UtilityFunctions::print("[TimelineRenderer] Exporting ", total_frames, " frames...");
-
-    for (int frame = 0; frame < total_frames; frame++) {
-        double time = frame * frame_time;
-
-        // ---- Video compositing (CPU path) ----
-        TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
-        Vector<Ref<TimelineTrack>> sorted_tracks;
-        for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
-        struct TrackComparator {
-            _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-                return a->get_layer_index() < b->get_layer_index();
-            }
-        };
-        sorted_tracks.sort_custom<TrackComparator>();
-
-        Vector<Ref<Image>> frames;
-        for (int i = 0; i < sorted_tracks.size(); i++) {
-            Ref<TimelineTrack> track = sorted_tracks[i];
-            Ref<TimelineClip> clip = track->get_clip_at_time(time);
-            if (clip.is_null()) continue;
-
-            double local_time = time - clip->get_timeline_start();
-            double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
-
-            Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
-            if (decoder.is_null()) continue;
-            decoder->seek(source_time);
-
-            Ref<Image> raw_frame = decoder->read_video_frame_scaled(p_width, p_height);
-            if (raw_frame.is_null()) continue;
-
-            // Apply CPU effects
-            if (clip->get_effect_count() > 0) {
-                raw_frame = _apply_cpu_effects(raw_frame, clip->get_effects(), p_width, p_height);
-            }
-
-            // Apply opacity
-            float op = clip->get_opacity();
-            if (op < 1.0f && raw_frame.is_valid()) {
-                Ref<Image> faded = raw_frame->duplicate();
-                int w = faded->get_width();
-                int h = faded->get_height();
-                for (int y = 0; y < h; y++) {
-                    for (int x = 0; x < w; x++) {
-                        Color c = faded->get_pixel(x, y);
-                        c.a *= op;
-                        faded->set_pixel(x, y, c);
-                    }
-                }
-                raw_frame = faded;
-            }
-
-            frames.push_back(raw_frame);
-        }
-
-        Ref<Image> img;
-        if (frames.is_empty()) {
-            img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-            img->fill(Color(0, 0, 0, 1));
-        } else if (frames.size() == 1) {
-            img = frames[0];
-        } else {
-            img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-            img->fill(Color(0, 0, 0, 1));
-            for (int i = 0; i < frames.size(); i++) {
-                if (frames[i].is_valid()) {
-                    img->blit_rect(frames[i], Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
-                }
-            }
-        }
-
-        // ---- Text overlays (CPU path: render to image and blit) ----
-        TypedArray<TextOverlay> overlays = timeline->get_text_overlays_at_time(time);
-        for (int i = 0; i < overlays.size(); i++) {
-            Ref<TextOverlay> ov = overlays[i];
-            if (ov.is_null()) continue;
-
-            Ref<Image> text_img = ov->render_to_image();
-            if (text_img.is_null()) continue;
-
-            Vector2 pos = ov->get_position();
-            Vector2 anchor = ov->get_anchor_point();
-            int tw = text_img->get_width();
-            int th = text_img->get_height();
-
-            Vector2 blit_pos = pos - Vector2(anchor.x * tw, anchor.y * th);
-            int bx = int(blit_pos.x);
-            int by = int(blit_pos.y);
-
-            // Simple alpha blit
-            for (int y = 0; y < th; y++) {
-                int py = by + y;
-                if (py < 0 || py >= p_height) continue;
-                for (int x = 0; x < tw; x++) {
-                    int px = bx + x;
-                    if (px < 0 || px >= p_width) continue;
-                    Color src = text_img->get_pixel(x, y);
-                    if (src.a <= 0.001f) continue;
-                    Color dst = img->get_pixel(px, py);
-                    float out_a = src.a + dst.a * (1.0f - src.a);
-                    if (out_a > 0.001f) {
-                        Color out;
-                        out.r = (src.r * src.a + dst.r * dst.a * (1.0f - src.a)) / out_a;
-                        out.g = (src.g * src.a + dst.g * dst.a * (1.0f - src.a)) / out_a;
-                        out.b = (src.b * src.a + dst.b * dst.a * (1.0f - src.a)) / out_a;
-                        out.a = out_a;
-                        img->set_pixel(px, py, out);
-                    }
-                }
-            }
-        }
-
-        if (img.is_null()) {
-            UtilityFunctions::push_error("[TimelineRenderer] Failed to render frame ", frame);
-            encoder->close();
-            return false;
-        }
-
-        if (!encoder->write_frame(img)) {
-            UtilityFunctions::push_error("[TimelineRenderer] Failed to write frame ", frame);
-            encoder->close();
-            return false;
-        }
-
-        if (has_audio) {
-            PackedFloat32Array audio = render_audio(time, audio_samples_per_frame, p_sample_rate);
-            if (audio.size() > 0) {
-                encoder->write_audio(audio);
-            }
-        }
-
-        if (frame % 30 == 0) {
-            UtilityFunctions::print("  Exported frame ", frame, "/", total_frames);
-        }
-    }
-
-    encoder->close();
-    clear_cache();
-
-    UtilityFunctions::print("[TimelineRenderer] Export complete: ", p_path);
-    return true;
+    return composite_frames_fast(vec, p_width, p_height);
 }
 
 void TimelineRenderer::clear_cache() {
