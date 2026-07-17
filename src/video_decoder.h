@@ -92,6 +92,8 @@ public:
     int get_video_height() const;
     double get_video_fps() const;
     bool has_audio() const;
+    int get_audio_sample_rate() const;
+    int get_audio_channels() const;
     void close();
     bool is_open() const;
 
