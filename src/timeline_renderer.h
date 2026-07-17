@@ -41,15 +41,13 @@ private:
 
     Ref<Image> composite_buffer;
     Ref<Image> black_frame;
-    Ref<Image> export_composite_buffer;  // reused buffer for CPU export
+    Ref<Image> export_composite_buffer;
 
-    // cached sorted tracks — no more sorting 3× per frame
     Vector<Ref<TimelineTrack>> cached_video_tracks;
     bool video_tracks_dirty = true;
     Vector<Ref<TimelineTrack>> cached_audio_tracks;
     bool audio_tracks_dirty = true;
 
-    // GPU preview texture cache — source_path -> ImageTexture
     Dictionary decoder_textures;
 
     RID comp_viewport;
@@ -71,7 +69,6 @@ private:
     Ref<Image> composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height);
     PackedFloat32Array mix_audio(const TypedArray<PackedFloat32Array> &p_buffers);
 
-    // cached track getters
     const Vector<Ref<TimelineTrack>> &_get_sorted_video_tracks();
     const Vector<Ref<TimelineTrack>> &_get_sorted_audio_tracks();
 
@@ -89,11 +86,11 @@ private:
         int p_width, int p_height);
 
     Vector2i _get_decode_size(int p_src_w, int p_src_h, int p_dst_w, int p_dst_h) const;
-    void _cpu_blit_normal(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity);
-    void _cpu_blit_add(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity);
-    void _cpu_blit_multiply(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity);
-    void _cpu_blit_subtract(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity);
-    void _cpu_blit(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity, int p_blend_mode);
+    void _cpu_blit_normal(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity);
+    void _cpu_blit_add(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity);
+    void _cpu_blit_multiply(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity);
+    void _cpu_blit_subtract(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity);
+    void _cpu_blit(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity, int p_blend_mode);
     Ref<Image> _cpu_render_text_overlay(const Ref<TextOverlay> &p_overlay, int p_canvas_w, int p_canvas_h, double p_time);
     Ref<Image> _cpu_render_image_overlay(const Ref<ImageOverlay> &p_overlay, int p_canvas_w, int p_canvas_h, double p_time);
     Ref<Image> _cpu_composite_frame(double p_time, int p_width, int p_height);
