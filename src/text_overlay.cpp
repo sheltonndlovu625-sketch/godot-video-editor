@@ -8,7 +8,6 @@
 using namespace godot;
 
 void TextOverlay::_bind_methods() {
-    // Content
     ClassDB::bind_method(D_METHOD("set_text", "text"), &TextOverlay::set_text);
     ClassDB::bind_method(D_METHOD("get_text"), &TextOverlay::get_text);
     ClassDB::add_property("TextOverlay", PropertyInfo(Variant::STRING, "text"), "set_text", "get_text");
@@ -21,7 +20,6 @@ void TextOverlay::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_font_size"), &TextOverlay::get_font_size);
     ClassDB::add_property("TextOverlay", PropertyInfo(Variant::INT, "font_size"), "set_font_size", "get_font_size");
 
-    // Style
     ClassDB::bind_method(D_METHOD("set_color", "color"), &TextOverlay::set_color);
     ClassDB::bind_method(D_METHOD("get_color"), &TextOverlay::get_color);
     ClassDB::add_property("TextOverlay", PropertyInfo(Variant::COLOR, "color"), "set_color", "get_color");
@@ -50,7 +48,6 @@ void TextOverlay::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_padding"), &TextOverlay::get_padding);
     ClassDB::add_property("TextOverlay", PropertyInfo(Variant::VECTOR2, "padding"), "set_padding", "get_padding");
 
-    // Transform
     ClassDB::bind_method(D_METHOD("set_position", "pos"), &TextOverlay::set_position);
     ClassDB::bind_method(D_METHOD("get_position"), &TextOverlay::get_position);
     ClassDB::add_property("TextOverlay", PropertyInfo(Variant::VECTOR2, "position"), "set_position", "get_position");
@@ -63,7 +60,6 @@ void TextOverlay::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_opacity"), &TextOverlay::get_opacity);
     ClassDB::add_property("TextOverlay", PropertyInfo(Variant::FLOAT, "opacity", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_opacity", "get_opacity");
 
-    // Timing
     ClassDB::bind_method(D_METHOD("set_start_time", "time"), &TextOverlay::set_start_time);
     ClassDB::bind_method(D_METHOD("get_start_time"), &TextOverlay::get_start_time);
     ClassDB::add_property("TextOverlay", PropertyInfo(Variant::FLOAT, "start_time"), "set_start_time", "get_start_time");
@@ -74,7 +70,6 @@ void TextOverlay::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("is_visible_at", "time"), &TextOverlay::is_visible_at);
 
-    // Animation
     ClassDB::bind_method(D_METHOD("set_animation", "anim"), &TextOverlay::set_animation);
     ClassDB::bind_method(D_METHOD("get_animation"), &TextOverlay::get_animation);
     ClassDB::add_property("TextOverlay", PropertyInfo(Variant::INT, "animation"), "set_animation", "get_animation");
@@ -101,8 +96,6 @@ TextOverlay::TextOverlay() {}
 TextOverlay::~TextOverlay() {
     _free_text_resources();
 }
-
-// ---- Setters / Getters ----
 
 void TextOverlay::set_text(const String &p_text) {
     text = p_text;
@@ -170,14 +163,10 @@ double TextOverlay::get_animation_duration() const { return animation_duration; 
 
 void TextOverlay::mark_dirty() { text_dirty = true; }
 
-// ---- Internal helpers ----
-
 Vector2 TextOverlay::_compute_text_size() const {
     if (font.is_null() || text.is_empty()) {
         return Vector2(100.0f, (float)font_size);
     }
-    // Use Font::get_string_size for accurate sizing
-    // In godot-cpp, get_string_size signature may vary; use basic call
     Vector2 size = font->get_string_size(text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size);
     return size;
 }
@@ -216,18 +205,15 @@ void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
     p_rs->canvas_item_set_parent(text_item, text_canvas);
     p_rs->viewport_attach_canvas(text_viewport, text_canvas);
 
-    // Draw background
     if (background_color.a > 0.001f) {
         p_rs->canvas_item_add_rect(text_item, Rect2(0, 0, vw, vh), background_color);
     }
 
-    // Draw shadow (offset copy)
     if (shadow_color.a > 0.001f && font.is_valid() && !text.is_empty()) {
         Vector2 shadow_pos = padding + shadow_offset;
         font->draw_string(text_item, shadow_pos, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, shadow_color);
     }
 
-    // Draw outline manually (4 offset copies in outline color)
     if (outline_size > 0 && outline_color.a > 0.001f && font.is_valid() && !text.is_empty()) {
         for (int ox = -outline_size; ox <= outline_size; ox++) {
             for (int oy = -outline_size; oy <= outline_size; oy++) {
@@ -238,7 +224,6 @@ void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
         }
     }
 
-    // Draw main text
     if (font.is_valid() && !text.is_empty()) {
         font->draw_string(text_item, padding, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, color);
     }
@@ -300,8 +285,6 @@ void TextOverlay::_apply_animation(double p_local_time, float &r_opacity, Vector
             break;
     }
 }
-
-// ---- Public render methods ----
 
 RID TextOverlay::render_to_rid(RenderingServer *p_rs, int p_canvas_w, int p_canvas_h, double p_time) {
     if (!is_visible_at(p_time)) return RID();
