@@ -2,7 +2,6 @@
 
 using namespace godot;
 
-// Static comparator for Vector::sort_custom
 struct ClipComparator {
     _FORCE_INLINE_ bool operator()(const Ref<TimelineClip> &a, const Ref<TimelineClip> &b) const {
         return a->get_timeline_start() < b->get_timeline_start();
@@ -33,7 +32,6 @@ void TimelineTrack::_bind_methods() {
 
     BIND_ENUM_CONSTANT(TRACK_TYPE_VIDEO);
     BIND_ENUM_CONSTANT(TRACK_TYPE_AUDIO);
-
     BIND_ENUM_CONSTANT(BLEND_MODE_NORMAL);
     BIND_ENUM_CONSTANT(BLEND_MODE_ADD);
     BIND_ENUM_CONSTANT(BLEND_MODE_MULTIPLY);
