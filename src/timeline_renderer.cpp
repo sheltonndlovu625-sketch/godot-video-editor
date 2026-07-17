@@ -34,7 +34,6 @@ TimelineRenderer::~TimelineRenderer() { clear_cache(); }
 
 void TimelineRenderer::set_timeline(const Ref<Timeline> &p_timeline) {
     timeline = p_timeline;
-    // OPTIMIZATION: invalidate caches when timeline changes
     video_tracks_dirty = true;
     audio_tracks_dirty = true;
     clear_cache();
@@ -82,10 +81,6 @@ bool TimelineRenderer::_needs_seek(double p_time) {
     return true;
 }
 
-// ------------------------------------------------------------------
-// OPTIMIZATION: cached sorted track getters
-// ------------------------------------------------------------------
-
 const Vector<Ref<TimelineTrack>> &TimelineRenderer::_get_sorted_video_tracks() {
     if (video_tracks_dirty && timeline.is_valid()) {
         cached_video_tracks.clear();
@@ -124,10 +119,6 @@ const Vector<Ref<TimelineTrack>> &TimelineRenderer::_get_sorted_audio_tracks() {
     return cached_audio_tracks;
 }
 
-// ------------------------------------------------------------------
-// CPU compositing helpers
-// ------------------------------------------------------------------
-
 Vector2i TimelineRenderer::_get_decode_size(int p_src_w, int p_src_h, int p_dst_w, int p_dst_h) const {
     if (aspect_ratio_mode == ASPECT_STRETCH || p_src_w <= 0 || p_src_h <= 0) {
         return Vector2i(p_dst_w, p_dst_h);
@@ -165,14 +156,12 @@ static inline uint8_t _clamp_u8(int v) {
     return (uint8_t)v;
 }
 
-// OPTIMIZATION: fast path for opaque, fully-contained blits
 void TimelineRenderer::_cpu_blit_normal(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity) {
     int src_w = p_src->get_width();
     int src_h = p_src->get_height();
     int dst_w = p_dst->get_width();
     int dst_h = p_dst->get_height();
 
-    // Fast path: fully opaque, fully inside destination bounds — use Godot's SIMD blit
     if (p_opacity >= 0.999f && p_dx >= 0 && p_dy >= 0 &&
         p_dx + src_w <= dst_w && p_dy + src_h <= dst_h) {
         p_dst->blit_rect(p_src, Rect2i(0, 0, src_w, src_h), Vector2i(p_dx, p_dy));
@@ -344,7 +333,6 @@ Ref<Image> TimelineRenderer::_cpu_render_image_overlay(const Ref<ImageOverlay> &
     return p_overlay->render_to_image();
 }
 
-// OPTIMIZATION: reused export buffer + cached sorted tracks
 Ref<Image> TimelineRenderer::_cpu_composite_frame(double p_time, int p_width, int p_height) {
     if (export_composite_buffer.is_null() ||
         export_composite_buffer->get_width() != p_width ||
@@ -432,10 +420,6 @@ Ref<Image> TimelineRenderer::_cpu_composite_frame(double p_time, int p_width, in
     return result;
 }
 
-// ------------------------------------------------------------------
-// CPU path (fallback / audio)
-// ------------------------------------------------------------------
-
 Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
     if (timeline.is_null()) {
         return Ref<Image>();
@@ -453,7 +437,6 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     }
 
     Vector<Ref<Image>> frames;
-    frames.reserve(sorted_tracks.size());
 
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
@@ -520,10 +503,6 @@ Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time,
     }
     return preview_texture;
 }
-
-// ------------------------------------------------------------------
-// GPU Compositor Infrastructure (preview only)
-// ------------------------------------------------------------------
 
 void TimelineRenderer::_ensure_gpu_compositor(RenderingServer *p_rs, int p_width, int p_height) {
     if (comp_viewport.is_valid() && comp_w == p_width && comp_h == p_height) {
@@ -643,10 +622,6 @@ RID TimelineRenderer::_composite_gpu_with_transforms(RenderingServer *p_rs,
     return p_rs->viewport_get_texture(comp_viewport);
 }
 
-// ------------------------------------------------------------------
-// GPU Preview Path
-// ------------------------------------------------------------------
-
 RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int p_height) {
     if (timeline.is_null()) return RID();
 
@@ -659,7 +634,7 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
     Vector<Transform2D> clip_transforms;
     Vector<int> clip_blend_modes;
     Vector<float> clip_opacities;
-    Vector<RID> temp_textures; // only for effect-generated intermediates
+    Vector<RID> temp_textures;
 
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
@@ -676,7 +651,6 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
         if (frame.is_null()) continue;
 
-        // OPTIMIZATION: cache decoder textures by source path — no alloc/free per frame
         String source_path = clip->get_source_path();
         Ref<ImageTexture> cached_tex;
         if (decoder_textures.has(source_path)) {
@@ -794,17 +768,12 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         clip_textures, clip_transforms, clip_blend_modes, clip_opacities,
         p_width, p_height);
 
-    // OPTIMIZATION: only free effect intermediates, not cached decoder textures
     for (int i = 0; i < temp_textures.size(); i++) {
         rs->free_rid(temp_textures[i]);
     }
 
     return final_tex;
 }
-
-// ------------------------------------------------------------------
-// Export to file (CPU path, mobile-safe)
-// ------------------------------------------------------------------
 
 bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate) {
     if (timeline.is_null()) {
@@ -871,10 +840,6 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
     UtilityFunctions::print("[TimelineRenderer] Export complete: ", p_path);
     return true;
 }
-
-// ------------------------------------------------------------------
-// Audio
-// ------------------------------------------------------------------
 
 PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_samples, int p_sample_rate) {
     PackedFloat32Array result;
@@ -998,10 +963,8 @@ void TimelineRenderer::clear_cache() {
     }
     decoders.clear();
 
-    // OPTIMIZATION: clear cached GPU textures
     decoder_textures.clear();
 
-    // OPTIMIZATION: clear track caches
     cached_video_tracks.clear();
     video_tracks_dirty = true;
     cached_audio_tracks.clear();
