@@ -192,9 +192,6 @@ bool VideoDecoder::open(String p_path) {
         AVStream *astream = format_ctx->streams[audio_stream_index];
         const AVCodec *acodec = avcodec_find_decoder(astream->codecpar->codec_id);
         if (acodec) {
-            audio_codec_ctx = avcodec_alloc_context3 AVStream *astream = format_ctx->streams[audio_stream_index];
-        const AVCodec *acodec = avcodec_find_decoder(astream->codecpar->codec_id);
-        if (acodec) {
             audio_codec_ctx = avcodec_alloc_context3(acodec);
             if (audio_codec_ctx) {
                 ret = avcodec_parameters_to_context(audio_codec_ctx, astream->codecpar);
@@ -248,7 +245,6 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height,
             return result;
         }
 
-        // Feed next packet — queued first, then read from file
         AVPacket *pkt_to_send = nullptr;
         bool from_queue = false;
 
@@ -277,7 +273,6 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height,
 
         ret = avcodec_send_packet(video_codec_ctx, pkt_to_send);
         if (ret == AVERROR(EAGAIN)) {
-            // Decoder full — put back and drain frames first
             if (from_queue) {
                 video_packet_queue.insert(0, pkt_to_send);
             } else {
@@ -294,7 +289,7 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height,
         }
 
         if (ret < 0) {
-            continue; // corrupt packet
+            continue;
         }
     }
 
@@ -395,7 +390,6 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
     PackedFloat32Array result;
     if (!initialized || audio_stream_index < 0 || !audio_codec_ctx) return result;
 
-    // Drain existing buffer first
     if (audio_buffer.size() > 0) {
         int to_return = MIN(p_max_samples, audio_buffer.size());
         result.resize(to_return);
@@ -448,7 +442,6 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
             break;
         }
 
-        // Feed next packet
         AVPacket *pkt_to_send = nullptr;
         bool from_queue = false;
 
@@ -476,7 +469,6 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
                 continue;
             }
         } else {
-            // No packets left; decoder will eventually return EOF
             continue;
         }
 
