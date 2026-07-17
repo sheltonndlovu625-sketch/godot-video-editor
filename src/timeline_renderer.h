@@ -41,6 +41,16 @@ private:
 
     Ref<Image> composite_buffer;
     Ref<Image> black_frame;
+    Ref<Image> export_composite_buffer;  // reused buffer for CPU export
+
+    // cached sorted tracks — no more sorting 3× per frame
+    Vector<Ref<TimelineTrack>> cached_video_tracks;
+    bool video_tracks_dirty = true;
+    Vector<Ref<TimelineTrack>> cached_audio_tracks;
+    bool audio_tracks_dirty = true;
+
+    // GPU preview texture cache — source_path -> ImageTexture
+    Dictionary decoder_textures;
 
     RID comp_viewport;
     RID comp_canvas;
@@ -60,6 +70,10 @@ private:
     Ref<Image> composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height);
     Ref<Image> composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height);
     PackedFloat32Array mix_audio(const TypedArray<PackedFloat32Array> &p_buffers);
+
+    // cached track getters
+    const Vector<Ref<TimelineTrack>> &_get_sorted_video_tracks();
+    const Vector<Ref<TimelineTrack>> &_get_sorted_audio_tracks();
 
     void _ensure_gpu_compositor(RenderingServer *p_rs, int p_width, int p_height);
     void _free_gpu_compositor();
