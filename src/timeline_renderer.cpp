@@ -848,12 +848,38 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
     }
 
     bool seek = _needs_seek(p_time);
-    const Vector<Ref<TimelineTrack>> &sorted_tracks = _get_sorted_audio_tracks();
+    const Vector<Ref<TimelineTrack>> *tracks_to_use = nullptr;
+    Vector<Ref<TimelineTrack>> fallback_tracks;
+
+    const Vector<Ref<TimelineTrack>> &audio_tracks = _get_sorted_audio_tracks();
+    if (!audio_tracks.is_empty()) {
+        tracks_to_use = &audio_tracks;
+    } else {
+        // Fallback: video tracks often contain audio streams
+        const Vector<Ref<TimelineTrack>> &video_tracks = _get_sorted_video_tracks();
+        for (int i = 0; i < video_tracks.size(); i++) {
+            Ref<TimelineTrack> track = video_tracks[i];
+            if (track.is_null()) continue;
+            Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
+            if (clip.is_null()) continue;
+            Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
+            if (decoder.is_valid() && decoder->has_audio()) {
+                fallback_tracks.push_back(track);
+            }
+        }
+        if (!fallback_tracks.is_empty()) {
+            tracks_to_use = &fallback_tracks;
+        }
+    }
+
+    if (tracks_to_use == nullptr) {
+        return result;
+    }
 
     TypedArray<PackedFloat32Array> buffers;
 
-    for (int i = 0; i < sorted_tracks.size(); i++) {
-        Ref<TimelineTrack> track = sorted_tracks[i];
+    for (int i = 0; i < tracks_to_use->size(); i++) {
+        Ref<TimelineTrack> track = (*tracks_to_use)[i];
         if (track.is_null()) continue;
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
         if (clip.is_null()) continue;
