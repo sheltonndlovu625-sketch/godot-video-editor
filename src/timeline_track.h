@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/templates/vector.hpp>
+#include <godot_cpp/variant/typed_array.hpp>
 #include "timeline_clip.h"
 
 namespace godot {
@@ -12,15 +13,15 @@ class TimelineTrack : public RefCounted {
 
 public:
     enum TrackType {
-        TRACK_TYPE_VIDEO = 0,
-        TRACK_TYPE_AUDIO = 1
+        TRACK_TYPE_VIDEO,
+        TRACK_TYPE_AUDIO
     };
 
     enum BlendMode {
-        BLEND_MODE_NORMAL = 0,
-        BLEND_MODE_ADD = 1,
-        BLEND_MODE_MULTIPLY = 2,
-        BLEND_MODE_SUBTRACT = 3
+        BLEND_MODE_NORMAL,
+        BLEND_MODE_ADD,
+        BLEND_MODE_MULTIPLY,
+        BLEND_MODE_SUBTRACT
     };
 
 private:
@@ -57,7 +58,7 @@ public:
 
 }
 
-VARIANT_ENUM_CAST(godot::TimelineTrack::TrackType);
-VARIANT_ENUM_CAST(godot::TimelineTrack::BlendMode);
+VARIANT_ENUM_CAST(TimelineTrack::TrackType);
+VARIANT_ENUM_CAST(TimelineTrack::BlendMode);
 
 #endif
