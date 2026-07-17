@@ -42,6 +42,8 @@ void VideoDecoder::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_video_height"), &VideoDecoder::get_video_height);
     ClassDB::bind_method(D_METHOD("get_video_fps"), &VideoDecoder::get_video_fps);
     ClassDB::bind_method(D_METHOD("has_audio"), &VideoDecoder::has_audio);
+    ClassDB::bind_method(D_METHOD("get_audio_sample_rate"), &VideoDecoder::get_audio_sample_rate);
+    ClassDB::bind_method(D_METHOD("get_audio_channels"), &VideoDecoder::get_audio_channels);
     ClassDB::bind_method(D_METHOD("close"), &VideoDecoder::close);
     ClassDB::bind_method(D_METHOD("is_open"), &VideoDecoder::is_open);
 }
@@ -557,6 +559,9 @@ double VideoDecoder::get_video_fps() const {
 bool VideoDecoder::has_audio() const {
     return initialized && audio_stream_index >= 0 && audio_codec_ctx != nullptr;
 }
+
+int VideoDecoder::get_audio_sample_rate() const { return sample_rate; }
+int VideoDecoder::get_audio_channels() const { return channels; }
 
 void VideoDecoder::close() {
     if (!initialized) return;
