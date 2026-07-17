@@ -29,7 +29,6 @@ private:
     double start_time = 0.0;
     double end_time = 5.0;
 
-    // GPU resources
     RID overlay_viewport;
     RID overlay_canvas;
     RID overlay_item;
@@ -69,6 +68,13 @@ public:
     double get_end_time() const;
 
     bool is_visible_at(double p_time) const;
+
+    Vector2 get_image_size() const {
+        if (cached_image.is_valid()) {
+            return Vector2((float)cached_image->get_width(), (float)cached_image->get_height());
+        }
+        return Vector2();
+    }
 
     RID render_to_rid(RenderingServer *p_rs, int p_canvas_w, int p_canvas_h, double p_time);
     Ref<Image> render_to_image();
