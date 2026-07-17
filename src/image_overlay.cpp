@@ -43,6 +43,7 @@ void ImageOverlay::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("is_visible_at", "time"), &ImageOverlay::is_visible_at);
     ClassDB::bind_method(D_METHOD("render_to_image"), &ImageOverlay::render_to_image);
+    ClassDB::bind_method(D_METHOD("get_image_size"), &ImageOverlay::get_image_size);
 }
 
 ImageOverlay::ImageOverlay() {}
@@ -148,7 +149,6 @@ RID ImageOverlay::render_to_rid(RenderingServer *p_rs, int p_canvas_w, int p_can
         int img_w = cached_image->get_width();
         int img_h = cached_image->get_height();
 
-        // Build transform
         Transform2D t;
         t[0] = Vector2(Math::cos(rotation), Math::sin(rotation)) * scale.x;
         t[1] = Vector2(-Math::sin(rotation), Math::cos(rotation)) * scale.y;
@@ -168,7 +168,7 @@ RID ImageOverlay::render_to_rid(RenderingServer *p_rs, int p_canvas_w, int p_can
 Ref<Image> ImageOverlay::render_to_image() {
     RenderingServer *p_rs = RenderingServer::get_singleton();
     if (!p_rs) return Ref<Image>();
-    _ensure_resources(p_rs, 1080, 1920); // fallback size
+    _ensure_resources(p_rs, 1080, 1920);
     if (!overlay_viewport.is_valid()) return Ref<Image>();
 
     p_rs->viewport_set_update_mode(overlay_viewport, RenderingServer::VIEWPORT_UPDATE_ONCE);
