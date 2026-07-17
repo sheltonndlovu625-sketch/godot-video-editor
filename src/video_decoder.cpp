@@ -1,14 +1,12 @@
 #include "video_decoder.h"
 #include <godot_cpp/classes/project_settings.hpp>
-#include <godot_cpp/classes/time.hpp>
 
 using namespace godot;
 
 namespace {
     String resolve_path(String p_path) {
         if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
-            ProjectSettings *ps = ProjectSettings::get_singleton();
-            if (ps) {
+            if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
                 return ps->globalize_path(p_path);
             }
         }
@@ -21,13 +19,15 @@ namespace {
         UtilityFunctions::push_error(String("[VideoDecoder] ") + prefix + ": " + errbuf);
     }
 
-    static enum AVPixelFormat get_hw_format(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts) {
+    static enum AVPixelFormat get_hw_format(AVCodecContext *ctx,
+                                            const enum AVPixelFormat *pix_fmts) {
+        // Return first hardware format we support, otherwise first software format
         const enum AVPixelFormat *p;
         for (p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
             if (*p == AV_PIX_FMT_MEDIACODEC) return *p;
             if (*p == AV_PIX_FMT_VIDEOTOOLBOX) return *p;
         }
-        return AV_PIX_FMT_NONE;
+        return pix_fmts[0];
     }
 }
 
@@ -68,7 +68,7 @@ bool VideoDecoder::open(String p_path) {
     }
 
     if (format_ctx->duration != AV_NOPTS_VALUE) {
-        duration = (double)format_ctx->duration / AV_TIME_BASE;
+        duration = static_cast<double>(format_ctx->duration) / AV_TIME_BASE;
     }
 
     for (unsigned int i = 0; i < format_ctx->nb_streams; i++) {
@@ -92,38 +92,66 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
+    // -----------------------------------------------------------------
+    // Hardware decoder selection (with software fallback)
+    // -----------------------------------------------------------------
     const AVCodec *hw_codec = nullptr;
-    #if defined(__ANDROID__)
-        hw_codec = avcodec_find_decoder_by_name("h264_mediacodec");
-        if (!hw_codec) hw_codec = avcodec_find_decoder_by_name("hevc_mediacodec");
-    #elif defined(__APPLE__)
-        hw_codec = avcodec_find_decoder_by_name("h264_videotoolbox");
-        if (!hw_codec) hw_codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
-    #endif
+#if defined(__ANDROID__)
+    hw_codec = avcodec_find_decoder_by_name("h264_mediacodec");
+    if (!hw_codec) hw_codec = avcodec_find_decoder_by_name("hevc_mediacodec");
+#elif defined(__APPLE__)
+    hw_codec = avcodec_find_decoder_by_name("h264_videotoolbox");
+    if (!hw_codec) hw_codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
+#endif
 
-    const AVCodec *selected_codec = hw_codec ? hw_codec : vcodec;
-    use_hwaccel = (hw_codec != nullptr);
-
-    video_codec_ctx = avcodec_alloc_context3(selected_codec);
-    if (!video_codec_ctx) {
-        avformat_close_input(&format_ctx);
-        return false;
+    bool hw_opened = false;
+    if (hw_codec) {
+        video_codec_ctx = avcodec_alloc_context3(hw_codec);
+        if (video_codec_ctx) {
+            ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
+            if (ret >= 0) {
+                video_codec_ctx->get_format = get_hw_format;
+                ret = avcodec_open2(video_codec_ctx, hw_codec, nullptr);
+                if (ret >= 0) {
+                    hw_opened = true;
+                    use_hwaccel = true;
+                    hw_pix_fmt = video_codec_ctx->pix_fmt;
+                }
+            }
+            if (!hw_opened) {
+                avcodec_free_context(&video_codec_ctx);
+            }
+        }
     }
 
-    if (use_hwaccel) {
-        video_codec_ctx->get_format = get_hw_format;
-    }
+    // -----------------------------------------------------------------
+    // Software fallback
+    // -----------------------------------------------------------------
+    if (!hw_opened) {
+        use_hwaccel = false;
+        hw_pix_fmt = AV_PIX_FMT_NONE;
+        video_codec_ctx = avcodec_alloc_context3(vcodec);
+        if (!video_codec_ctx) {
+            avformat_close_input(&format_ctx);
+            return false;
+        }
 
-    ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
-    if (ret < 0) {
-        close();
-        return false;
-    }
+        // CRITICAL: enable frame+slice threading for 1080p software decode
+        int cpu_count = OS::get_singleton()->get_processor_count();
+        video_codec_ctx->thread_count = (cpu_count > 0) ? cpu_count : 4;
+        video_codec_ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 
-    ret = avcodec_open2(video_codec_ctx, selected_codec, nullptr);
-    if (ret < 0) {
-        close();
-        return false;
+        ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
+        if (ret < 0) {
+            close();
+            return false;
+        }
+
+        ret = avcodec_open2(video_codec_ctx, vcodec, nullptr);
+        if (ret < 0) {
+            close();
+            return false;
+        }
     }
 
     original_width = video_codec_ctx->width;
@@ -137,13 +165,11 @@ bool VideoDecoder::open(String p_path) {
     }
     native_write_idx = 0;
 
-    sws_ctx = nullptr;
-    sws_ctx_scaled = nullptr;
-
     packet = av_packet_alloc();
-    audio_convert_buf = nullptr;
-    audio_convert_buf_samples = 0;
 
+    // -----------------------------------------------------------------
+    // Audio setup
+    // -----------------------------------------------------------------
     if (audio_stream_index >= 0) {
         AVStream *astream = format_ctx->streams[audio_stream_index];
         const AVCodec *acodec = avcodec_find_decoder(astream->codecpar->codec_id);
@@ -180,102 +206,111 @@ bool VideoDecoder::open(String p_path) {
     return true;
 }
 
-Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height, SwsContext *&r_sws, Ref<Image> p_target) {
+Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height,
+                                           SwsContext *&r_sws,
+                                           enum AVPixelFormat &r_last_src_fmt,
+                                           Ref<Image> p_target) {
     Ref<Image> result;
     int ret;
-    bool got_frame = false;
 
     while (true) {
-        // 1. Drain any frame already buffered in the decoder (critical after seek/flush)
+        // 1. Drain decoded frames first
         ret = avcodec_receive_frame(video_codec_ctx, video_frame);
         if (ret == 0) {
-            got_frame = true;
-            break;
+            break; // Got a frame
         }
         if (ret == AVERROR_EOF) {
             eof_reached = true;
             return result;
         }
         if (ret != AVERROR(EAGAIN)) {
-            return result; // Real error
+            log_av_error("avcodec_receive_frame failed", ret);
+            return result;
         }
 
-        // 2. No buffered frames — read and feed a packet
-        av_packet_unref(packet);
+        // 2. Feed a new packet
         ret = av_read_frame(format_ctx, packet);
         if (ret < 0) {
             if (ret == AVERROR_EOF && !eof_reached) {
-                // Flush decoder — send NULL packet to get remaining frames
                 eof_reached = true;
-                avcodec_send_packet(video_codec_ctx, nullptr);
+                avcodec_send_packet(video_codec_ctx, nullptr); // enter drain mode
                 continue;
             }
             return result;
         }
 
         if (packet->stream_index != video_stream_index) {
-            continue; // Skip non-video; will be unref'd at top of next loop
-        }
-
-        ret = avcodec_send_packet(video_codec_ctx, packet);
-        if (ret == AVERROR(EAGAIN)) {
-            // Decoder input full despite draining first. Rare but possible with
-            // codecs that buffer multiple packets. Drop packet and retry.
             av_packet_unref(packet);
             continue;
         }
-        av_packet_unref(packet); // Send succeeded, decoder owns it now
-        if (ret < 0) continue;
-        // Loop back to receive_frame for the frame from this packet
+
+        ret = avcodec_send_packet(video_codec_ctx, packet);
+        av_packet_unref(packet); // decoder refs internally on success
+
+        if (ret == AVERROR(EAGAIN)) {
+            continue; // should be rare after draining
+        }
+        if (ret < 0) {
+            continue; // corrupt packet, try next
+        }
     }
 
-    if (!got_frame) {
-        return result;
-    }
-
-    // Update current_time from the frame's actual PTS
+    // Update time from PTS
     if (video_frame->pts != AV_NOPTS_VALUE) {
         AVStream *stream = format_ctx->streams[video_stream_index];
         current_time = video_frame->pts * av_q2d(stream->time_base);
     }
 
+    // Hardware transfer
     AVFrame *frame_to_convert = video_frame;
-    if (use_hwaccel && (video_frame->format == AV_PIX_FMT_MEDIACODEC || video_frame->format == AV_PIX_FMT_VIDEOTOOLBOX)) {
+    if (use_hwaccel && video_frame->format == hw_pix_fmt) {
         ret = av_hwframe_transfer_data(hw_frame, video_frame, 0);
         if (ret >= 0) {
             frame_to_convert = hw_frame;
+        } else {
+            log_av_error("HW transfer failed, using original frame", ret);
         }
+    }
+
+    // Recreate scaler if source format changed
+    enum AVPixelFormat src_fmt = static_cast<enum AVPixelFormat>(frame_to_convert->format);
+    if (!r_sws || r_last_src_fmt != src_fmt) {
+        if (r_sws) {
+            sws_freeContext(r_sws);
+            r_sws = nullptr;
+        }
+        r_last_src_fmt = src_fmt;
     }
 
     if (!r_sws) {
         r_sws = sws_getContext(
-            original_width, original_height, (AVPixelFormat)frame_to_convert->format,
+            original_width, original_height, src_fmt,
             p_width, p_height, AV_PIX_FMT_RGBA,
             SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
         );
+        if (!r_sws) {
+            UtilityFunctions::push_error("[VideoDecoder] sws_getContext failed");
+            return result;
+        }
     }
 
-    if (r_sws) {
-        uint8_t *dst_data[1] = { p_target->ptrw() };
-        int dst_linesize[1] = { p_width * 4 };
+    uint8_t *dst_data[1] = { p_target->ptrw() };
+    int dst_linesize[1] = { p_width * 4 };
 
-        sws_scale(r_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
-            original_height, dst_data, dst_linesize);
+    sws_scale(r_sws, frame_to_convert->data, frame_to_convert->linesize, 0,
+              original_height, dst_data, dst_linesize);
 
-        result = p_target;
-    }
-    return result;
+    return p_target;
 }
 
 Ref<Image> VideoDecoder::read_video_frame() {
     if (!initialized || video_stream_index < 0) return Ref<Image>();
 
-    if (eof_reached) {
-        seek(0.0);
-    }
+    if (eof_reached) seek(0.0);
 
     Ref<Image> target = native_buffers[native_write_idx];
-    Ref<Image> result = _decode_one_frame(original_width, original_height, sws_ctx, target);
+    Ref<Image> result = _decode_one_frame(original_width, original_height,
+                                          sws_ctx, sws_src_fmt, target);
     if (result.is_valid()) {
         native_write_idx = 1 - native_write_idx;
     }
@@ -294,7 +329,6 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
             sws_freeContext(sws_ctx_scaled);
             sws_ctx_scaled = nullptr;
         }
-
         for (int i = 0; i < 2; i++) {
             scaled_buffers[i] = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
         }
@@ -303,14 +337,14 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
         scaled_write_idx = 0;
         scaled_width = p_width;
         scaled_height = p_height;
+        sws_scaled_src_fmt = AV_PIX_FMT_NONE;
     }
 
-    if (eof_reached) {
-        seek(0.0);
-    }
+    if (eof_reached) seek(0.0);
 
     Ref<Image> target = scaled_buffers[scaled_write_idx];
-    Ref<Image> result = _decode_one_frame(p_width, p_height, sws_ctx_scaled, target);
+    Ref<Image> result = _decode_one_frame(p_width, p_height,
+                                          sws_ctx_scaled, sws_scaled_src_fmt, target);
     if (result.is_valid()) {
         scaled_write_idx = 1 - scaled_write_idx;
     }
@@ -321,13 +355,14 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
     PackedFloat32Array result;
     if (!initialized || audio_stream_index < 0 || !audio_codec_ctx) return result;
 
+    // Drain existing buffer first
     if (audio_buffer.size() > 0) {
         int to_return = MIN(p_max_samples, audio_buffer.size());
         result.resize(to_return);
         memcpy(result.ptrw(), audio_buffer.ptr(), to_return * sizeof(float));
         if (to_return < audio_buffer.size()) {
             memmove(audio_buffer.ptrw(), audio_buffer.ptr() + to_return,
-                (audio_buffer.size() - to_return) * sizeof(float));
+                    (audio_buffer.size() - to_return) * sizeof(float));
             audio_buffer.resize(audio_buffer.size() - to_return);
         } else {
             audio_buffer.resize(0);
@@ -337,56 +372,41 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
     }
 
     while (audio_buffer.size() < p_max_samples) {
-        av_packet_unref(packet);
         int ret = av_read_frame(format_ctx, packet);
         if (ret < 0) break;
 
         if (packet->stream_index == audio_stream_index) {
             ret = avcodec_send_packet(audio_codec_ctx, packet);
-            if (ret == AVERROR(EAGAIN)) {
-                av_packet_unref(packet);
-                continue;
-            }
             av_packet_unref(packet);
+            if (ret == AVERROR(EAGAIN)) continue;
             if (ret < 0) continue;
+
             while (ret >= 0) {
                 ret = avcodec_receive_frame(audio_codec_ctx, audio_frame);
                 if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
                 if (ret < 0) break;
+
                 int out_samples = swr_get_out_samples(swr_ctx, audio_frame->nb_samples);
                 if (out_samples > 0) {
                     if (out_samples > audio_convert_buf_samples) {
-                        av_freep(&audio_convert_buf);
+                        av_freep((void**)&audio_convert_buf);
                         av_samples_alloc((uint8_t**)&audio_convert_buf, nullptr, channels,
-                            out_samples, AV_SAMPLE_FMT_FLT, 0);
+                                         out_samples, AV_SAMPLE_FMT_FLT, 0);
                         audio_convert_buf_samples = out_samples;
                     }
                     int converted = swr_convert(swr_ctx, (uint8_t**)&audio_convert_buf, out_samples,
-                        (const uint8_t **)audio_frame->data, audio_frame->nb_samples);
+                                                (const uint8_t **)audio_frame->data, audio_frame->nb_samples);
                     if (converted > 0) {
-                        float *float_data = (float *)audio_convert_buf;
                         int old_size = audio_buffer.size();
                         audio_buffer.resize(old_size + converted * channels);
-                        memcpy(audio_buffer.ptrw() + old_size, float_data, converted * channels * sizeof(float));
-                    }
-                }
-            }
-        } else if (packet->stream_index == video_stream_index) {
-            ret = avcodec_send_packet(video_codec_ctx, packet);
-            if (ret == AVERROR(EAGAIN)) {
-                av_packet_unref(packet);
-                continue;
-            }
-            av_packet_unref(packet);
-            if (ret >= 0) {
-                while (avcodec_receive_frame(video_codec_ctx, video_frame) >= 0) {
-                    if (video_frame->pts != AV_NOPTS_VALUE) {
-                        AVStream *stream = format_ctx->streams[video_stream_index];
-                        current_time = video_frame->pts * av_q2d(stream->time_base);
+                        memcpy(audio_buffer.ptrw() + old_size, audio_convert_buf,
+                               converted * channels * sizeof(float));
                     }
                 }
             }
         } else {
+            // OPTIMIZATION: Do NOT decode video packets here. Just drop them.
+            // The caller should read video frames separately.
             av_packet_unref(packet);
         }
     }
@@ -398,7 +418,7 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
         memcpy(result.ptrw() + result_offset, audio_buffer.ptr(), to_return * sizeof(float));
         if (to_return < audio_buffer.size()) {
             memmove(audio_buffer.ptrw(), audio_buffer.ptr() + to_return,
-                (audio_buffer.size() - to_return) * sizeof(float));
+                    (audio_buffer.size() - to_return) * sizeof(float));
             audio_buffer.resize(audio_buffer.size() - to_return);
         } else {
             audio_buffer.resize(0);
@@ -410,7 +430,7 @@ PackedFloat32Array VideoDecoder::read_audio_samples(int p_max_samples) {
 bool VideoDecoder::seek(double p_time_seconds) {
     if (!initialized) return false;
 
-    int64_t ts = (int64_t)(p_time_seconds * AV_TIME_BASE);
+    int64_t ts = static_cast<int64_t>(p_time_seconds * AV_TIME_BASE);
     int ret = avformat_seek_file(format_ctx, -1, INT64_MIN, ts, INT64_MAX, 0);
     if (ret < 0) {
         ret = av_seek_frame(format_ctx, -1, ts, 0);
@@ -424,8 +444,6 @@ bool VideoDecoder::seek(double p_time_seconds) {
     if (audio_codec_ctx) avcodec_flush_buffers(audio_codec_ctx);
     audio_buffer.resize(0);
     eof_reached = false;
-    // REMOVED: current_time = p_time_seconds;
-    // The first decoded frame will set current_time to the actual PTS.
     return true;
 }
 
@@ -474,21 +492,23 @@ void VideoDecoder::close() {
     }
 
     av_packet_free(&packet);
-    av_freep(&audio_convert_buf);
+    av_freep((void**)&audio_convert_buf);
     audio_convert_buf_samples = 0;
 
     for (int i = 0; i < 2; i++) {
-        native_buffers[i].unref();
-        scaled_buffers[i].unref();
+        native_buffers[i] = Ref<Image>();
+        scaled_buffers[i] = Ref<Image>();
     }
     native_write_idx = 0;
     scaled_write_idx = 0;
     scaled_buf_w = 0;
     scaled_buf_h = 0;
+    sws_src_fmt = AV_PIX_FMT_NONE;
+    sws_scaled_src_fmt = AV_PIX_FMT_NONE;
 
     initialized = false;
     use_hwaccel = false;
-    hw_device_type = AV_HWDEVICE_TYPE_NONE;
+    hw_pix_fmt = AV_PIX_FMT_NONE;
     video_stream_index = -1;
     audio_stream_index = -1;
     duration = 0.0;
@@ -501,14 +521,3 @@ void VideoDecoder::close() {
 }
 
 bool VideoDecoder::is_open() const { return initialized; }
-
-#include <typeinfo>
-namespace godot {
-    struct VideoDecoderTypeinfoHelper {
-        VideoDecoderTypeinfoHelper() {
-            const std::type_info &ti = typeid(VideoDecoder);
-            (void)ti;
-        }
-    };
-    static VideoDecoderTypeinfoHelper _video_decoder_typeinfo_helper;
-}
