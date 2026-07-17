@@ -69,11 +69,13 @@ void VideoDecoder::_queue_packet(AVPacket *p_packet) {
 
 void VideoDecoder::_flush_packet_queues() {
     for (int i = 0; i < video_packet_queue.size(); i++) {
-        av_packet_free(&video_packet_queue[i]);
+        AVPacket *pkt = video_packet_queue[i];
+        av_packet_free(&pkt);
     }
     video_packet_queue.clear();
     for (int i = 0; i < audio_packet_queue.size(); i++) {
-        av_packet_free(&audio_packet_queue[i]);
+        AVPacket *pkt = audio_packet_queue[i];
+        av_packet_free(&pkt);
     }
     audio_packet_queue.clear();
 }
