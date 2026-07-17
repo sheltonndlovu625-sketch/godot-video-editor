@@ -1,6 +1,7 @@
 #include "timeline_renderer.h"
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/core/math.hpp>
 #include <godot_cpp/variant/color.hpp>
@@ -33,6 +34,9 @@ TimelineRenderer::~TimelineRenderer() { clear_cache(); }
 
 void TimelineRenderer::set_timeline(const Ref<Timeline> &p_timeline) {
     timeline = p_timeline;
+    // OPTIMIZATION: invalidate caches when timeline changes
+    video_tracks_dirty = true;
+    audio_tracks_dirty = true;
     clear_cache();
 }
 
@@ -79,7 +83,49 @@ bool TimelineRenderer::_needs_seek(double p_time) {
 }
 
 // ------------------------------------------------------------------
-// CPU compositing helpers (fast, no GPU)
+// OPTIMIZATION: cached sorted track getters
+// ------------------------------------------------------------------
+
+const Vector<Ref<TimelineTrack>> &TimelineRenderer::_get_sorted_video_tracks() {
+    if (video_tracks_dirty && timeline.is_valid()) {
+        cached_video_tracks.clear();
+        TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
+        cached_video_tracks.resize(video_tracks.size());
+        for (int i = 0; i < video_tracks.size(); i++) {
+            cached_video_tracks.write[i] = video_tracks[i];
+        }
+        struct TrackComparator {
+            _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+                return a->get_layer_index() < b->get_layer_index();
+            }
+        };
+        cached_video_tracks.sort_custom<TrackComparator>();
+        video_tracks_dirty = false;
+    }
+    return cached_video_tracks;
+}
+
+const Vector<Ref<TimelineTrack>> &TimelineRenderer::_get_sorted_audio_tracks() {
+    if (audio_tracks_dirty && timeline.is_valid()) {
+        cached_audio_tracks.clear();
+        TypedArray<TimelineTrack> audio_tracks = timeline->get_audio_tracks();
+        cached_audio_tracks.resize(audio_tracks.size());
+        for (int i = 0; i < audio_tracks.size(); i++) {
+            cached_audio_tracks.write[i] = audio_tracks[i];
+        }
+        struct TrackComparator {
+            _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+                return a->get_layer_index() < b->get_layer_index();
+            }
+        };
+        cached_audio_tracks.sort_custom<TrackComparator>();
+        audio_tracks_dirty = false;
+    }
+    return cached_audio_tracks;
+}
+
+// ------------------------------------------------------------------
+// CPU compositing helpers
 // ------------------------------------------------------------------
 
 Vector2i TimelineRenderer::_get_decode_size(int p_src_w, int p_src_h, int p_dst_w, int p_dst_h) const {
@@ -119,11 +165,19 @@ static inline uint8_t _clamp_u8(int v) {
     return (uint8_t)v;
 }
 
+// OPTIMIZATION: fast path for opaque, fully-contained blits
 void TimelineRenderer::_cpu_blit_normal(Image *p_dst, const Image *p_src, int p_dx, int p_dy, float p_opacity) {
     int src_w = p_src->get_width();
     int src_h = p_src->get_height();
     int dst_w = p_dst->get_width();
     int dst_h = p_dst->get_height();
+
+    // Fast path: fully opaque, fully inside destination bounds — use Godot's SIMD blit
+    if (p_opacity >= 0.999f && p_dx >= 0 && p_dy >= 0 &&
+        p_dx + src_w <= dst_w && p_dy + src_h <= dst_h) {
+        p_dst->blit_rect(p_src, Rect2i(0, 0, src_w, src_h), Vector2i(p_dx, p_dy));
+        return;
+    }
 
     int x0 = MAX(0, -p_dx);
     int y0 = MAX(0, -p_dy);
@@ -290,21 +344,18 @@ Ref<Image> TimelineRenderer::_cpu_render_image_overlay(const Ref<ImageOverlay> &
     return p_overlay->render_to_image();
 }
 
+// OPTIMIZATION: reused export buffer + cached sorted tracks
 Ref<Image> TimelineRenderer::_cpu_composite_frame(double p_time, int p_width, int p_height) {
-    Ref<Image> result = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+    if (export_composite_buffer.is_null() ||
+        export_composite_buffer->get_width() != p_width ||
+        export_composite_buffer->get_height() != p_height) {
+        export_composite_buffer = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+    }
+    Ref<Image> result = export_composite_buffer;
     result->fill(Color(0, 0, 0, 1));
 
     bool seek = _needs_seek(p_time);
-
-    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
-    Vector<Ref<TimelineTrack>> sorted_tracks;
-    for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
-    struct TrackComparator {
-        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-            return a->get_layer_index() < b->get_layer_index();
-        }
-    };
-    sorted_tracks.sort_custom<TrackComparator>();
+    const Vector<Ref<TimelineTrack>> &sorted_tracks = _get_sorted_video_tracks();
 
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
@@ -391,9 +442,9 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     }
 
     bool seek = _needs_seek(p_time);
+    const Vector<Ref<TimelineTrack>> &sorted_tracks = _get_sorted_video_tracks();
 
-    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
-    if (video_tracks.is_empty()) {
+    if (sorted_tracks.is_empty()) {
         if (black_frame.is_null() || black_frame->get_width() != p_width || black_frame->get_height() != p_height) {
             black_frame = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
             black_frame->fill(Color(0, 0, 0, 1));
@@ -401,18 +452,9 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         return black_frame;
     }
 
-    Vector<Ref<TimelineTrack>> sorted_tracks;
-    for (int i = 0; i < video_tracks.size(); i++) {
-        sorted_tracks.push_back(video_tracks[i]);
-    }
-    struct TrackComparator {
-        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-            return a->get_layer_index() < b->get_layer_index();
-        }
-    };
-    sorted_tracks.sort_custom<TrackComparator>();
-
     Vector<Ref<Image>> frames;
+    frames.reserve(sorted_tracks.size());
+
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
@@ -602,7 +644,7 @@ RID TimelineRenderer::_composite_gpu_with_transforms(RenderingServer *p_rs,
 }
 
 // ------------------------------------------------------------------
-// GPU Preview Path (unchanged, with image overlays + text)
+// GPU Preview Path
 // ------------------------------------------------------------------
 
 RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int p_height) {
@@ -610,23 +652,14 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
 
     RenderingServer *rs = RenderingServer::get_singleton();
 
-    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
-    Vector<Ref<TimelineTrack>> sorted_tracks;
-    for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
-    struct TrackComparator {
-        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-            return a->get_layer_index() < b->get_layer_index();
-        }
-    };
-    sorted_tracks.sort_custom<TrackComparator>();
-
+    const Vector<Ref<TimelineTrack>> &sorted_tracks = _get_sorted_video_tracks();
     bool seek = _needs_seek(p_time);
 
     Vector<RID> clip_textures;
     Vector<Transform2D> clip_transforms;
     Vector<int> clip_blend_modes;
     Vector<float> clip_opacities;
-    Vector<RID> temp_textures;
+    Vector<RID> temp_textures; // only for effect-generated intermediates
 
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
@@ -643,8 +676,19 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
         if (frame.is_null()) continue;
 
-        RID frame_tex = rs->texture_2d_create(frame);
-        temp_textures.push_back(frame_tex);
+        // OPTIMIZATION: cache decoder textures by source path — no alloc/free per frame
+        String source_path = clip->get_source_path();
+        Ref<ImageTexture> cached_tex;
+        if (decoder_textures.has(source_path)) {
+            cached_tex = decoder_textures[source_path];
+            cached_tex->update(frame);
+        } else {
+            cached_tex.instantiate();
+            cached_tex->set_image(frame);
+            decoder_textures[source_path] = cached_tex;
+        }
+        RID frame_tex = cached_tex->get_rid();
+
         RID current_tex = frame_tex;
 
         TypedArray<VideoEffect> fx = clip->get_effects();
@@ -652,7 +696,10 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
             Ref<VideoEffect> effect = fx[e];
             if (effect.is_null()) continue;
             RID next_tex = effect->apply_to_texture(rs, current_tex, p_width, p_height);
-            if (next_tex.is_valid()) {
+            if (next_tex.is_valid() && next_tex != current_tex) {
+                if (current_tex != frame_tex) {
+                    temp_textures.push_back(current_tex);
+                }
                 current_tex = next_tex;
             }
         }
@@ -747,6 +794,7 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         clip_textures, clip_transforms, clip_blend_modes, clip_opacities,
         p_width, p_height);
 
+    // OPTIMIZATION: only free effect intermediates, not cached decoder textures
     for (int i = 0; i < temp_textures.size(); i++) {
         rs->free_rid(temp_textures[i]);
     }
@@ -835,12 +883,12 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
     }
 
     bool seek = _needs_seek(p_time);
+    const Vector<Ref<TimelineTrack>> &sorted_tracks = _get_sorted_audio_tracks();
 
-    TypedArray<TimelineTrack> audio_tracks = timeline->get_audio_tracks();
     TypedArray<PackedFloat32Array> buffers;
 
-    for (int i = 0; i < audio_tracks.size(); i++) {
-        Ref<TimelineTrack> track = audio_tracks[i];
+    for (int i = 0; i < sorted_tracks.size(); i++) {
+        Ref<TimelineTrack> track = sorted_tracks[i];
         if (track.is_null()) continue;
         Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
         if (clip.is_null()) continue;
@@ -950,6 +998,15 @@ void TimelineRenderer::clear_cache() {
     }
     decoders.clear();
 
+    // OPTIMIZATION: clear cached GPU textures
+    decoder_textures.clear();
+
+    // OPTIMIZATION: clear track caches
+    cached_video_tracks.clear();
+    video_tracks_dirty = true;
+    cached_audio_tracks.clear();
+    audio_tracks_dirty = true;
+
     if (preview_texture_rid.is_valid()) {
         RenderingServer::get_singleton()->free_rid(preview_texture_rid);
         preview_texture_rid = RID();
@@ -967,6 +1024,7 @@ void TimelineRenderer::clear_cache() {
 
     composite_buffer.unref();
     black_frame.unref();
+    export_composite_buffer.unref();
 
     last_render_time = -1.0;
 }
