@@ -175,13 +175,13 @@ void TimelineRenderer::_cpu_blit_normal(Image *p_dst, Image *p_src, int p_dx, in
     if (x0 >= x1 || y0 >= y1) return;
 
     uint8_t *dst_data = p_dst->ptrw();
-    uint8_t *src_data = p_src->ptr();
+    const uint8_t *src_data = p_src->ptr();
     int dst_stride = dst_w * 4;
     int src_stride = src_w * 4;
 
     for (int y = y0; y < y1; y++) {
         uint8_t *drow = dst_data + ((p_dy + y) * dst_stride) + (p_dx + x0) * 4;
-        uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
+        const uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
         for (int x = x0; x < x1; x++) {
             float sa = (srow[3] / 255.0f) * p_opacity;
             if (sa < 0.001f) {
@@ -214,13 +214,13 @@ void TimelineRenderer::_cpu_blit_add(Image *p_dst, Image *p_src, int p_dx, int p
     if (x0 >= x1 || y0 >= y1) return;
 
     uint8_t *dst_data = p_dst->ptrw();
-    uint8_t *src_data = p_src->ptr();
+    const uint8_t *src_data = p_src->ptr();
     int dst_stride = dst_w * 4;
     int src_stride = src_w * 4;
 
     for (int y = y0; y < y1; y++) {
         uint8_t *drow = dst_data + ((p_dy + y) * dst_stride) + (p_dx + x0) * 4;
-        uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
+        const uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
         for (int x = x0; x < x1; x++) {
             float sa = (srow[3] / 255.0f) * p_opacity;
             if (sa > 0.001f) {
@@ -247,13 +247,13 @@ void TimelineRenderer::_cpu_blit_multiply(Image *p_dst, Image *p_src, int p_dx, 
     if (x0 >= x1 || y0 >= y1) return;
 
     uint8_t *dst_data = p_dst->ptrw();
-    uint8_t *src_data = p_src->ptr();
+    const uint8_t *src_data = p_src->ptr();
     int dst_stride = dst_w * 4;
     int src_stride = src_w * 4;
 
     for (int y = y0; y < y1; y++) {
         uint8_t *drow = dst_data + ((p_dy + y) * dst_stride) + (p_dx + x0) * 4;
-        uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
+        const uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
         for (int x = x0; x < x1; x++) {
             float sa = (srow[3] / 255.0f) * p_opacity;
             if (sa > 0.001f) {
@@ -279,13 +279,13 @@ void TimelineRenderer::_cpu_blit_subtract(Image *p_dst, Image *p_src, int p_dx, 
     if (x0 >= x1 || y0 >= y1) return;
 
     uint8_t *dst_data = p_dst->ptrw();
-    uint8_t *src_data = p_src->ptr();
+    const uint8_t *src_data = p_src->ptr();
     int dst_stride = dst_w * 4;
     int src_stride = src_w * 4;
 
     for (int y = y0; y < y1; y++) {
         uint8_t *drow = dst_data + ((p_dy + y) * dst_stride) + (p_dx + x0) * 4;
-        uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
+        const uint8_t *srow = src_data + (y * src_stride) + x0 * 4;
         for (int x = x0; x < x1; x++) {
             float sa = (srow[3] / 255.0f) * p_opacity;
             if (sa > 0.001f) {
