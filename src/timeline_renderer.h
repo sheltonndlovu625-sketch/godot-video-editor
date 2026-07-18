@@ -61,7 +61,7 @@ private:
     Ref<CanvasItemMaterial> mat_multiply;
     Ref<CanvasItemMaterial> mat_subtract;
 
-    AspectRatioMode aspect_ratio_mode = ASPECT_FILL;
+    AspectRatioMode aspect_ratio_mode = ASPECT_FIT;  // <-- CHANGED
 
     Ref<VideoDecoder> get_decoder(const String &p_path);
     bool _needs_seek(double p_time);
