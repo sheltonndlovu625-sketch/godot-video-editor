@@ -29,8 +29,6 @@ COMMON_FLAGS=(
     --enable-static
     --enable-pic
     --disable-asm
-    --enable-gpl
-    --enable-version3
     --disable-stripping
     --disable-bzlib
     --disable-libopenjpeg
