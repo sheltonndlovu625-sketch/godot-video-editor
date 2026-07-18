@@ -420,6 +420,9 @@ Ref<Image> TimelineRenderer::_cpu_composite_frame(double p_time, int p_width, in
     return result;
 }
 
+// ============================================================================
+// FIXED: aspect-ratio-preserving preview render
+// ============================================================================
 Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
     if (timeline.is_null()) {
         return Ref<Image>();
@@ -437,6 +440,7 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     }
 
     Vector<Ref<Image>> frames;
+    Vector<Vector2i> frame_offsets;
 
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
@@ -453,10 +457,19 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
             decoder->seek(source_time);
         }
 
-        Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
+        // Preserve aspect ratio: decode to size that fits inside p_width x p_height
+        int src_w = decoder->get_video_width();
+        int src_h = decoder->get_video_height();
+        Vector2i decode_size = _get_decode_size(src_w, src_h, p_width, p_height);
+
+        Ref<Image> frame = decoder->read_video_frame_scaled(decode_size.x, decode_size.y);
         if (frame.is_null()) continue;
 
         frames.push_back(frame);
+        frame_offsets.push_back(Vector2i(
+            (p_width - decode_size.x) / 2,
+            (p_height - decode_size.y) / 2
+        ));
     }
 
     last_render_time = p_time;
@@ -469,10 +482,12 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
         return black_frame;
     }
 
-    if (frames.size() == 1) {
+    // Fast path: single frame already filling the canvas
+    if (frames.size() == 1 && frame_offsets[0] == Vector2i(0, 0)) {
         return frames[0];
     }
 
+    // Composite onto black canvas, centered
     if (composite_buffer.is_null() || composite_buffer->get_width() != p_width || composite_buffer->get_height() != p_height) {
         composite_buffer = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
     }
@@ -481,7 +496,11 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
     for (int i = 0; i < frames.size(); i++) {
         Ref<Image> top = frames[i];
         if (top.is_null()) continue;
-        composite_buffer->blit_rect(top, Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
+        composite_buffer->blit_rect(
+            top,
+            Rect2i(0, 0, top->get_width(), top->get_height()),
+            frame_offsets[i]
+        );
     }
 
     return composite_buffer;
