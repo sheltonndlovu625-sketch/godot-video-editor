@@ -18,16 +18,6 @@ namespace {
         av_strerror(errnum, errbuf, sizeof(errbuf));
         UtilityFunctions::push_error(String("[VideoDecoder] ") + prefix + ": " + errbuf);
     }
-
-    static enum AVPixelFormat get_hw_format(AVCodecContext *ctx,
-                                            const enum AVPixelFormat *pix_fmts) {
-        const enum AVPixelFormat *p;
-        for (p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
-            if (*p == AV_PIX_FMT_MEDIACODEC) return *p;
-            if (*p == AV_PIX_FMT_VIDEOTOOLBOX) return *p;
-        }
-        return pix_fmts[0];
-    }
 }
 
 void VideoDecoder::_bind_methods() {
@@ -124,59 +114,31 @@ bool VideoDecoder::open(String p_path) {
         return false;
     }
 
-    const AVCodec *hw_codec = nullptr;
-#if defined(__ANDROID__)
-    hw_codec = avcodec_find_decoder_by_name("h264_mediacodec");
-    if (!hw_codec) hw_codec = avcodec_find_decoder_by_name("hevc_mediacodec");
-#elif defined(__APPLE__)
-    hw_codec = avcodec_find_decoder_by_name("h264_videotoolbox");
-    if (!hw_codec) hw_codec = avcodec_find_decoder_by_name("hevc_videotoolbox");
-#endif
+    // Software decoding only — hardware acceleration disabled to avoid
+    // "HW transfer failed" errors and pixel-format mismatches.
+    use_hwaccel = false;
+    hw_pix_fmt = AV_PIX_FMT_NONE;
 
-    bool hw_opened = false;
-    if (hw_codec) {
-        video_codec_ctx = avcodec_alloc_context3(hw_codec);
-        if (video_codec_ctx) {
-            ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
-            if (ret >= 0) {
-                video_codec_ctx->get_format = get_hw_format;
-                ret = avcodec_open2(video_codec_ctx, hw_codec, nullptr);
-                if (ret >= 0) {
-                    hw_opened = true;
-                    use_hwaccel = true;
-                    hw_pix_fmt = video_codec_ctx->pix_fmt;
-                }
-            }
-            if (!hw_opened) {
-                avcodec_free_context(&video_codec_ctx);
-            }
-        }
+    video_codec_ctx = avcodec_alloc_context3(vcodec);
+    if (!video_codec_ctx) {
+        avformat_close_input(&format_ctx);
+        return false;
     }
 
-    if (!hw_opened) {
-        use_hwaccel = false;
-        hw_pix_fmt = AV_PIX_FMT_NONE;
-        video_codec_ctx = avcodec_alloc_context3(vcodec);
-        if (!video_codec_ctx) {
-            avformat_close_input(&format_ctx);
-            return false;
-        }
+    int cpu_count = OS::get_singleton()->get_processor_count();
+    video_codec_ctx->thread_count = (cpu_count > 0) ? cpu_count : 4;
+    video_codec_ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 
-        int cpu_count = OS::get_singleton()->get_processor_count();
-        video_codec_ctx->thread_count = (cpu_count > 0) ? cpu_count : 4;
-        video_codec_ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+    ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
+    if (ret < 0) {
+        close();
+        return false;
+    }
 
-        ret = avcodec_parameters_to_context(video_codec_ctx, vstream->codecpar);
-        if (ret < 0) {
-            close();
-            return false;
-        }
-
-        ret = avcodec_open2(video_codec_ctx, vcodec, nullptr);
-        if (ret < 0) {
-            close();
-            return false;
-        }
+    ret = avcodec_open2(video_codec_ctx, vcodec, nullptr);
+    if (ret < 0) {
+        close();
+        return false;
     }
 
     original_width = video_codec_ctx->width;
@@ -345,7 +307,7 @@ Ref<Image> VideoDecoder::_decode_one_frame(int p_width, int p_height,
 Ref<Image> VideoDecoder::read_video_frame() {
     if (!initialized || video_stream_index < 0) return Ref<Image>();
 
-    if (eof_reached) seek(0.0);
+    if (eof_reached) return Ref<Image>();
 
     Ref<Image> target = native_buffers[native_write_idx];
     Ref<Image> result = _decode_one_frame(original_width, original_height,
@@ -379,7 +341,7 @@ Ref<Image> VideoDecoder::read_video_frame_scaled(int p_width, int p_height) {
         sws_scaled_src_fmt = AV_PIX_FMT_NONE;
     }
 
-    if (eof_reached) seek(0.0);
+    if (eof_reached) return Ref<Image>();
 
     Ref<Image> target = scaled_buffers[scaled_write_idx];
     Ref<Image> result = _decode_one_frame(p_width, p_height,
