@@ -32,7 +32,7 @@ COMMON_FLAGS=(
     --disable-shared
     --enable-static
     --enable-pic
-    --enable-version3
+			--disable-asm
     --disable-stripping
     --disable-bzlib
     --disable-libopenjpeg
