@@ -17,6 +17,9 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
+#include "timeline_clip_node.h"
+#include "timeline_track_node.h"
+#include "timeline_ruler.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -42,6 +45,10 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         ClassDB::register_class<ImageOverlay>();
         ClassDB::register_class<CaptionSegment>();
         ClassDB::register_class<AutoCaptionGenerator>();
+        ClassDB::register_class<TimelineClipNode>();
+		ClassDB::register_class<TimelineTrackNode>();
+		ClassDB::register_class<TimelineRuler>();
+
     }
 }
 
