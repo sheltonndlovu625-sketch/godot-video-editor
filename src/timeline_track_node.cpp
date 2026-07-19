@@ -1,5 +1,7 @@
 #include "timeline_track_node.h"
 #include <godot_cpp/classes/font.hpp>
+#include <godot_cpp/classes/input_event_screen_touch.hpp>
+
 
 using namespace godot;
 
