@@ -1,20 +1,18 @@
 #include "timeline_track_node.h"
+#include <godot_cpp/classes/font.hpp>   // <-- ADD THIS
 
 using namespace godot;
 
 void TimelineTrackNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_track", "track"), &TimelineTrackNode::set_track);
     ClassDB::bind_method(D_METHOD("get_track"), &TimelineTrackNode::get_track);
-    
     ClassDB::bind_method(D_METHOD("set_pixels_per_second", "pps"), &TimelineTrackNode::set_pixels_per_second);
     ClassDB::bind_method(D_METHOD("get_pixels_per_second"), &TimelineTrackNode::get_pixels_per_second);
-    
     ClassDB::bind_method(D_METHOD("set_zoom", "zoom"), &TimelineTrackNode::set_zoom);
     ClassDB::bind_method(D_METHOD("get_zoom"), &TimelineTrackNode::get_zoom);
-    
     ClassDB::bind_method(D_METHOD("set_header_width", "width"), &TimelineTrackNode::set_header_width);
     ClassDB::bind_method(D_METHOD("get_header_width"), &TimelineTrackNode::get_header_width);
-    
+
     ADD_SIGNAL(MethodInfo("seek_requested", PropertyInfo(Variant::FLOAT, "time")));
 }
 
@@ -59,16 +57,16 @@ float TimelineTrackNode::get_header_width() const {
 
 void TimelineTrackNode::_draw() {
     float h = get_size().y;
-    
+
     draw_rect(Rect2(0, 0, header_width, h), Color(0.12f, 0.12f, 0.14f));
     if (track.is_valid()) {
         String icon = is_video_track ? "V" : "A";
         draw_string(get_theme_default_font(), Vector2(6, h * 0.5f + 5), icon, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1));
     }
-    
+
     Color bg = is_video_track ? Color(0.05f, 0.05f, 0.07f) : Color(0.06f, 0.06f, 0.08f);
     draw_rect(Rect2(header_width, 0, get_size().x - header_width, h), bg);
-    
+
     float pps = pixels_per_second * zoom;
     for (float x = header_width; x < get_size().x; x += pps) {
         draw_line(Vector2(x, 0), Vector2(x, h), Color(1, 1, 1, 0.03f), 1.0f);
