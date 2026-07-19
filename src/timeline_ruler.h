@@ -16,21 +16,19 @@ private:
 
 protected:
     static void _bind_methods();
-    void _draw() override;
 
 public:
+    void _draw() override;  // <-- MOVED TO PUBLIC
+
     void set_pixels_per_second(float p_pps);
     float get_pixels_per_second() const;
-    
     void set_zoom(float p_zoom);
     float get_zoom() const;
-    
     void set_duration(double p_duration);
     double get_duration() const;
-    
     void set_header_width(float p_width);
     float get_header_width() const;
-    
+
     TimelineRuler();
 };
 
