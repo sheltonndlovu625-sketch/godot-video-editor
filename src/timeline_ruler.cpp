@@ -1,6 +1,6 @@
 #include "timeline_ruler.h"
-#include <godot_cpp/classes/font.hpp>   // <-- ADD THIS
-#include <godot_cpp/core/math.hpp>      // for Math::fmod, Math::maxf
+#include <godot_cpp/classes/font.hpp>
+#include <godot_cpp/core/math.hpp>
 
 using namespace godot;
 
@@ -67,7 +67,8 @@ void TimelineRuler::_draw() {
         float x = header_width + t * pps;
         if (x > get_size().x) break;
 
-        bool major = Math::fmod(t, Math::maxf(step * 2.0f, 1.0f)) < 0.01f;
+        // FIX: Math::max instead of Math::maxf
+        bool major = Math::fmod(t, Math::max(step * 2.0f, 1.0f)) < 0.01f;
         float tick_h = major ? h * 0.6f : h * 0.25f;
 
         draw_line(Vector2(x, h - tick_h), Vector2(x, h), Color(0.5f, 0.5f, 0.5f), 1.0f);
