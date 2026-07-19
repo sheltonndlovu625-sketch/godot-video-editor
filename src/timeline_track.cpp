@@ -1,122 +1,85 @@
-#include "timeline_track.h"
+#include "timeline_ruler.h"
+#include <godot_cpp/classes/font.hpp>
+#include <godot_cpp/core/math.hpp>
 
 using namespace godot;
 
-struct ClipComparator {
-    _FORCE_INLINE_ bool operator()(const Ref<TimelineClip> &a, const Ref<TimelineClip> &b) const {
-        return a->get_timeline_start() < b->get_timeline_start();
-    }
-};
-
-void TimelineTrack::_bind_methods() {
-    ClassDB::bind_method(D_METHOD("set_track_type", "type"), &TimelineTrack::set_track_type);
-    ClassDB::bind_method(D_METHOD("get_track_type"), &TimelineTrack::get_track_type);
-    ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "track_type"), "set_track_type", "get_track_type");
-
-    ClassDB::bind_method(D_METHOD("set_layer_index", "index"), &TimelineTrack::set_layer_index);
-    ClassDB::bind_method(D_METHOD("get_layer_index"), &TimelineTrack::get_layer_index);
-    ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "layer_index"), "set_layer_index", "get_layer_index");
-
-    ClassDB::bind_method(D_METHOD("set_blend_mode", "mode"), &TimelineTrack::set_blend_mode);
-    ClassDB::bind_method(D_METHOD("get_blend_mode"), &TimelineTrack::get_blend_mode);
-    ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "blend_mode"), "set_blend_mode", "get_blend_mode");
-
-    ClassDB::bind_method(D_METHOD("add_clip", "clip"), &TimelineTrack::add_clip);
-    ClassDB::bind_method(D_METHOD("remove_clip", "index"), &TimelineTrack::remove_clip);
-    ClassDB::bind_method(D_METHOD("clear_clips"), &TimelineTrack::clear_clips);
-    ClassDB::bind_method(D_METHOD("get_clip_count"), &TimelineTrack::get_clip_count);
-    ClassDB::bind_method(D_METHOD("get_clip", "index"), &TimelineTrack::get_clip);
-    ClassDB::bind_method(D_METHOD("get_clip_at_time", "time"), &TimelineTrack::get_clip_at_time);
-    ClassDB::bind_method(D_METHOD("get_clips"), &TimelineTrack::get_clips);
-    ClassDB::bind_method(D_METHOD("get_track_duration"), &TimelineTrack::get_track_duration);
-
-    BIND_ENUM_CONSTANT(TRACK_TYPE_VIDEO);
-    BIND_ENUM_CONSTANT(TRACK_TYPE_AUDIO);
-    BIND_ENUM_CONSTANT(BLEND_MODE_NORMAL);
-    BIND_ENUM_CONSTANT(BLEND_MODE_ADD);
-    BIND_ENUM_CONSTANT(BLEND_MODE_MULTIPLY);
-    BIND_ENUM_CONSTANT(BLEND_MODE_SUBTRACT);
+void TimelineRuler::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("set_pixels_per_second", "pps"), &TimelineRuler::set_pixels_per_second);
+    ClassDB::bind_method(D_METHOD("get_pixels_per_second"), &TimelineRuler::get_pixels_per_second);
+    ClassDB::bind_method(D_METHOD("set_zoom", "zoom"), &TimelineRuler::set_zoom);
+    ClassDB::bind_method(D_METHOD("get_zoom"), &TimelineRuler::get_zoom);
+    ClassDB::bind_method(D_METHOD("set_duration", "duration"), &TimelineRuler::set_duration);
+    ClassDB::bind_method(D_METHOD("get_duration"), &TimelineRuler::get_duration);
+    ClassDB::bind_method(D_METHOD("set_header_width", "width"), &TimelineRuler::set_header_width);
+    ClassDB::bind_method(D_METHOD("get_header_width"), &TimelineRuler::get_header_width);
 }
 
-TimelineTrack::TimelineTrack() {}
-TimelineTrack::~TimelineTrack() {}
+TimelineRuler::TimelineRuler() {}
 
-void TimelineTrack::set_track_type(int p_type) {
-    track_type = (TrackType)p_type;
+void TimelineRuler::set_pixels_per_second(float p_pps) {
+    pixels_per_second = p_pps;
+    queue_redraw();
 }
 
-int TimelineTrack::get_track_type() const {
-    return (int)track_type;
+float TimelineRuler::get_pixels_per_second() const {
+    return pixels_per_second;
 }
 
-void TimelineTrack::set_layer_index(int p_index) {
-    layer_index = p_index;
+void TimelineRuler::set_zoom(float p_zoom) {
+    zoom = p_zoom;
+    queue_redraw();
 }
 
-int TimelineTrack::get_layer_index() const {
-    return layer_index;
+float TimelineRuler::get_zoom() const {
+    return zoom;
 }
 
-void TimelineTrack::set_blend_mode(int p_mode) {
-    blend_mode = (BlendMode)p_mode;
+void TimelineRuler::set_duration(double p_duration) {
+    duration = p_duration;
+    queue_redraw();
 }
 
-int TimelineTrack::get_blend_mode() const {
-    return (int)blend_mode;
+double TimelineRuler::get_duration() const {
+    return duration;
 }
 
-void TimelineTrack::add_clip(const Ref<TimelineClip> &p_clip) {
-    if (p_clip.is_null()) return;
-    clips.push_back(p_clip);
-    clips.sort_custom<ClipComparator>();
+void TimelineRuler::set_header_width(float p_width) {
+    header_width = p_width;
+    queue_redraw();
 }
 
-void TimelineTrack::remove_clip(int p_index) {
-    if (p_index >= 0 && p_index < clips.size()) {
-        clips.remove_at(p_index);
-    }
+float TimelineRuler::get_header_width() const {
+    return header_width;
 }
 
-void TimelineTrack::clear_clips() {
-    clips.clear();
-}
+void TimelineRuler::_draw() {
+    float h = get_size().y;
+    draw_rect(Rect2(0, 0, get_size().x, h), Color(0.08f, 0.08f, 0.10f));
 
-int TimelineTrack::get_clip_count() const {
-    return clips.size();
-}
+    float pps = pixels_per_second * zoom;
+    float step = 1.0f;
+    if (pps < 20.0f) step = 5.0f;
+    else if (pps > 120.0f) step = 0.5f;
 
-Ref<TimelineClip> TimelineTrack::get_clip(int p_index) const {
-    if (p_index >= 0 && p_index < clips.size()) {
-        return clips[p_index];
-    }
-    return Ref<TimelineClip>();
-}
+    double t = 0.0;
+    while (t <= duration) {
+        float x = header_width + t * pps;
+        if (x > get_size().x) break;
 
-Ref<TimelineClip> TimelineTrack::get_clip_at_time(double p_time) const {
-    for (int i = 0; i < clips.size(); i++) {
-        const Ref<TimelineClip> &clip = clips[i];
-        if (p_time >= clip->get_timeline_start() && p_time < clip->get_timeline_end()) {
-            return clip;
+        // FIX: Math::max instead of Math::maxf
+        bool major = Math::fmod(t, Math::max(step * 2.0f, 1.0f)) < 0.01f;
+        float tick_h = major ? h * 0.6f : h * 0.25f;
+
+        draw_line(Vector2(x, h - tick_h), Vector2(x, h), Color(0.5f, 0.5f, 0.5f), 1.0f);
+
+        if (major) {
+            int mins = int(t) / 60;
+            int secs = int(t) % 60;
+            String label = String::num_int64(mins).pad_zeros(2) + ":" + String::num_int64(secs).pad_zeros(2);
+            draw_string(get_theme_default_font(), Vector2(x + 3, h - 6), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5f, 0.5f, 0.5f));
         }
-    }
-    return Ref<TimelineClip>();
-}
 
-TypedArray<TimelineClip> TimelineTrack::get_clips() const {
-    TypedArray<TimelineClip> result;
-    for (int i = 0; i < clips.size(); i++) {
-        result.push_back(clips[i]);
+        t += step;
     }
-    return result;
-}
-
-double TimelineTrack::get_track_duration() const {
-    double max_end = 0.0;
-    for (int i = 0; i < clips.size(); i++) {
-        double end = clips[i]->get_timeline_end();
-        if (end > max_end) {
-            max_end = end;
-        }
-    }
-    return max_end;
 }
