@@ -2,6 +2,7 @@
 #define TIMELINE_TRACK_NODE_H
 
 #include <godot_cpp/classes/control.hpp>
+#include <godot_cpp/classes/input_event.hpp>   // <-- ADD THIS
 #include "timeline_track.h"
 
 namespace godot {
@@ -20,8 +21,8 @@ protected:
     static void _bind_methods();
 
 public:
-    void _draw() override;                              // <-- PUBLIC
-    void _gui_input(const Ref<InputEvent> &p_event) override;  // <-- PUBLIC
+    void _draw() override;
+    void _gui_input(const Ref<InputEvent> &p_event) override;
 
     void set_track(const Ref<TimelineTrack> &p_track);
     Ref<TimelineTrack> get_track() const;
