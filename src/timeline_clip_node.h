@@ -32,7 +32,6 @@ private:
     double drag_start_duration = 0.0;
     double drag_start_source_in = 0.0;
     double drag_start_source_out = 0.0;
-    
     float pixels_per_second = 60.0f;
     float zoom = 1.0f;
     float handle_width = 12.0f;
@@ -40,27 +39,23 @@ private:
 
 protected:
     static void _bind_methods();
-    void _gui_input(const Ref<InputEvent> &p_event) override;
-    void _draw() override;
 
 public:
+    void _draw() override;                              // <-- PUBLIC
+    void _gui_input(const Ref<InputEvent> &p_event) override;  // <-- PUBLIC
+
     void set_clip(const Ref<TimelineClip> &p_clip);
     Ref<TimelineClip> get_clip() const;
-    
     void set_selected(bool p_selected);
     bool is_selected() const;
-    
     void set_pixels_per_second(float p_pps);
     float get_pixels_per_second() const;
-    
     void set_zoom(float p_zoom);
     float get_zoom() const;
-    
     void set_is_video(bool p_video);
     bool get_is_video() const;
-    
     void update_layout();
-    
+
     TimelineClipNode();
 };
 
