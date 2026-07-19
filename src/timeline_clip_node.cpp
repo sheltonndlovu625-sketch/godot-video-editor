@@ -1,5 +1,5 @@
 #include "timeline_clip_node.h"
-#include <godot_cpp/classes/font.hpp>   // <-- ADD THIS
+#include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
@@ -81,7 +81,8 @@ bool TimelineClipNode::get_is_video() const {
 void TimelineClipNode::update_layout() {
     if (clip.is_null()) return;
     double dur = clip->get_duration();
-    float w = maxf(24.0f, (float)(dur * pixels_per_second * zoom));
+    // FIX: Math::max instead of maxf
+    float w = Math::max(24.0f, (float)(dur * pixels_per_second * zoom));
     set_custom_minimum_size(Vector2(w, 0));
     set_size(Vector2(w, get_size().y));
 }
@@ -103,7 +104,8 @@ void TimelineClipNode::_draw() {
     if (selected) {
         draw_rect(rect, Color(1, 1, 1), false, 2.5f);
 
-        float hw = minf(handle_width, rect.size.x * 0.25f);
+        // FIX: Math::min instead of minf
+        float hw = Math::min(handle_width, rect.size.x * 0.25f);
         if (hw > 4.0f) {
             Rect2 left_handle = Rect2(rect.position + Vector2(2, 4), Vector2(hw - 2, rect.size.y - 8));
             Rect2 right_handle = Rect2(rect.position + Vector2(rect.size.x - hw, 4), Vector2(hw - 2, rect.size.y - 8));
