@@ -67,8 +67,7 @@ void TimelineRuler::_draw() {
         float x = header_width + t * pps;
         if (x > get_size().x) break;
 
-        // FIX: Math::max instead of Math::maxf
-        bool major = Math::fmod(t, Math::max(step * 2.0f, 1.0f)) < 0.01f;
+        bool major = Math::fmod(t, (double)Math::max(step * 2.0f, 1.0f)) < 0.01;
         float tick_h = major ? h * 0.6f : h * 0.25f;
 
         draw_line(Vector2(x, h - tick_h), Vector2(x, h), Color(0.5f, 0.5f, 0.5f), 1.0f);
