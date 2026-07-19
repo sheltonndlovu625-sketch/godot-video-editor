@@ -1,17 +1,16 @@
 #include "timeline_ruler.h"
+#include <godot_cpp/classes/font.hpp>   // <-- ADD THIS
+#include <godot_cpp/core/math.hpp>      // for Math::fmod, Math::maxf
 
 using namespace godot;
 
 void TimelineRuler::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_pixels_per_second", "pps"), &TimelineRuler::set_pixels_per_second);
     ClassDB::bind_method(D_METHOD("get_pixels_per_second"), &TimelineRuler::get_pixels_per_second);
-    
     ClassDB::bind_method(D_METHOD("set_zoom", "zoom"), &TimelineRuler::set_zoom);
     ClassDB::bind_method(D_METHOD("get_zoom"), &TimelineRuler::get_zoom);
-    
     ClassDB::bind_method(D_METHOD("set_duration", "duration"), &TimelineRuler::set_duration);
     ClassDB::bind_method(D_METHOD("get_duration"), &TimelineRuler::get_duration);
-    
     ClassDB::bind_method(D_METHOD("set_header_width", "width"), &TimelineRuler::set_header_width);
     ClassDB::bind_method(D_METHOD("get_header_width"), &TimelineRuler::get_header_width);
 }
@@ -57,29 +56,29 @@ float TimelineRuler::get_header_width() const {
 void TimelineRuler::_draw() {
     float h = get_size().y;
     draw_rect(Rect2(0, 0, get_size().x, h), Color(0.08f, 0.08f, 0.10f));
-    
+
     float pps = pixels_per_second * zoom;
     float step = 1.0f;
     if (pps < 20.0f) step = 5.0f;
     else if (pps > 120.0f) step = 0.5f;
-    
+
     double t = 0.0;
     while (t <= duration) {
         float x = header_width + t * pps;
         if (x > get_size().x) break;
-        
-        bool major = Math::fmod(t, maxf(step * 2.0f, 1.0f)) < 0.01f;
+
+        bool major = Math::fmod(t, Math::maxf(step * 2.0f, 1.0f)) < 0.01f;
         float tick_h = major ? h * 0.6f : h * 0.25f;
-        
+
         draw_line(Vector2(x, h - tick_h), Vector2(x, h), Color(0.5f, 0.5f, 0.5f), 1.0f);
-        
+
         if (major) {
             int mins = int(t) / 60;
             int secs = int(t) % 60;
             String label = String::num_int64(mins).pad_zeros(2) + ":" + String::num_int64(secs).pad_zeros(2);
             draw_string(get_theme_default_font(), Vector2(x + 3, h - 6), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.5f, 0.5f, 0.5f));
         }
-        
+
         t += step;
     }
 }
