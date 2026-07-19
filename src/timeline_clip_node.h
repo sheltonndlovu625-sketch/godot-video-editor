@@ -5,9 +5,12 @@
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/classes/input_event_screen_touch.hpp>
 #include <godot_cpp/classes/input_event_screen_drag.hpp>
+#include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 #include <godot_cpp/variant/color.hpp>
 #include "timeline_clip.h"
+#include "video_decoder.h"
 
 namespace godot {
 
@@ -20,6 +23,11 @@ public:
         DRAG_MOVE,
         DRAG_TRIM_LEFT,
         DRAG_TRIM_RIGHT
+    };
+
+    enum DisplayMode {
+        DISPLAY_SOLID,
+        DISPLAY_THUMBNAILS
     };
 
 private:
@@ -37,12 +45,31 @@ private:
     float handle_width = 12.0f;
     bool is_video = true;
 
+    // Inspector customisation
+    bool use_custom_color = false;
+    Color custom_color = Color(1, 1, 1);
+    Ref<Font> font;
+    int font_size = 10;
+    Color label_color = Color(1, 1, 1);
+
+    // Thumbnails
+    DisplayMode display_mode = DISPLAY_SOLID;
+    float thumb_size = 48.0f;
+    Ref<VideoDecoder> thumb_decoder;
+    Vector<Ref<ImageTexture>> thumbnail_textures;
+    bool thumbnails_dirty = true;
+
+    void _draw_solid(const Rect2 &p_rect);
+    void _draw_thumbnails(const Rect2 &p_rect);
+    void _ensure_thumbnails();
+    Ref<Image> _extract_thumbnail_frame(double p_time);
+
 protected:
     static void _bind_methods();
 
 public:
-    void _draw() override;                              // <-- PUBLIC
-    void _gui_input(const Ref<InputEvent> &p_event) override;  // <-- PUBLIC
+    void _draw() override;
+    void _gui_input(const Ref<InputEvent> &p_event) override;
 
     void set_clip(const Ref<TimelineClip> &p_clip);
     Ref<TimelineClip> get_clip() const;
@@ -56,11 +83,32 @@ public:
     bool get_is_video() const;
     void update_layout();
 
+    // Customisation
+    void set_custom_color(const Color &p_color);
+    Color get_custom_color() const;
+    void set_use_custom_color(bool p_use);
+    bool get_use_custom_color() const;
+
+    void set_font(const Ref<Font> &p_font);
+    Ref<Font> get_font() const;
+    void set_font_size(int p_size);
+    int get_font_size() const;
+    void set_label_color(const Color &p_color);
+    Color get_label_color() const;
+
+    // Display mode
+    void set_display_mode(int p_mode);
+    int get_display_mode() const;
+    void set_thumb_size(float p_size);
+    float get_thumb_size() const;
+    void refresh_thumbnails();
+
     TimelineClipNode();
 };
 
 }
 
 VARIANT_ENUM_CAST(TimelineClipNode::DragMode);
+VARIANT_ENUM_CAST(TimelineClipNode::DisplayMode);
 
 #endif
