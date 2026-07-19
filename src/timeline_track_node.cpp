@@ -1,5 +1,5 @@
 #include "timeline_track_node.h"
-#include <godot_cpp/classes/font.hpp>   // <-- ADD THIS
+#include <godot_cpp/classes/font.hpp>
 
 using namespace godot;
 
@@ -79,7 +79,8 @@ void TimelineTrackNode::_gui_input(const Ref<InputEvent> &p_event) {
         Vector2 pos = touch->get_position();
         if (pos.x > header_width) {
             double t = (pos.x - header_width) / (pixels_per_second * zoom);
-            emit_signal("seek_requested", maxf(0.0f, (float)t));
+            // FIX: Math::max instead of maxf
+            emit_signal("seek_requested", Math::max(0.0f, (float)t));
         }
     }
 }
