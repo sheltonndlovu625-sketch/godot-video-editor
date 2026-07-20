@@ -55,6 +55,9 @@ public:
     TypedArray<VideoEffect> get_effects() const;
     int get_effect_count() const;
 
+    // Split
+    TypedArray<TimelineClip> split(double p_local_time);
+
     // Transform
     void set_position(const Vector2 &p_pos);
     Vector2 get_position() const;
