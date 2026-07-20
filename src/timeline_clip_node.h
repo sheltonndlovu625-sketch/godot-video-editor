@@ -61,6 +61,7 @@ private:
 
     void _draw_solid(const Rect2 &p_rect);
     void _draw_thumbnails(const Rect2 &p_rect);
+    void _draw_split_handle(const Rect2 &p_rect);  // <-- ADDED
     void _ensure_thumbnails();
     Ref<Image> _extract_thumbnail_frame(double p_time);
 
