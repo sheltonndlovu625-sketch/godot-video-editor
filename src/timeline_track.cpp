@@ -30,6 +30,8 @@ void TimelineTrack::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_clips"), &TimelineTrack::get_clips);
     ClassDB::bind_method(D_METHOD("get_track_duration"), &TimelineTrack::get_track_duration);
 
+    ClassDB::bind_method(D_METHOD("split_clip_at_time", "time"), &TimelineTrack::split_clip_at_time);
+
     BIND_ENUM_CONSTANT(TRACK_TYPE_VIDEO);
     BIND_ENUM_CONSTANT(TRACK_TYPE_AUDIO);
     BIND_ENUM_CONSTANT(BLEND_MODE_NORMAL);
@@ -119,4 +121,25 @@ double TimelineTrack::get_track_duration() const {
         }
     }
     return max_end;
+}
+
+bool TimelineTrack::split_clip_at_time(double p_time) {
+    Ref<TimelineClip> clip = get_clip_at_time(p_time);
+    if (clip.is_null()) return false;
+
+    double local_time = p_time - clip->get_timeline_start();
+    TypedArray<TimelineClip> split = clip->split(local_time);
+    if (split.size() != 2) return false;
+
+    // Remove original clip
+    for (int i = 0; i < clips.size(); i++) {
+        if (clips[i] == clip) {
+            clips.remove_at(i);
+            break;
+        }
+    }
+
+    add_clip(split[0]);
+    add_clip(split[1]);
+    return true;
 }
