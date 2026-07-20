@@ -48,6 +48,10 @@ public:
     void step_backward();
     bool is_at_end() const;
 
+    // Split
+    int split_at_time(double p_time);
+    int split_at_playhead();
+
     // Text overlays
     void add_text_overlay(const Ref<TextOverlay> &p_overlay);
     void remove_text_overlay(int p_index);
