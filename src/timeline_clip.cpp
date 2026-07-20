@@ -33,6 +33,9 @@ void TimelineClip::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_effects"), &TimelineClip::get_effects);
     ClassDB::bind_method(D_METHOD("get_effect_count"), &TimelineClip::get_effect_count);
 
+    // Split binding
+    ClassDB::bind_method(D_METHOD("split", "local_time"), &TimelineClip::split);
+
     // Transform bindings
     ClassDB::bind_method(D_METHOD("set_position", "pos"), &TimelineClip::set_position);
     ClassDB::bind_method(D_METHOD("get_position"), &TimelineClip::get_position);
@@ -133,6 +136,56 @@ TypedArray<VideoEffect> TimelineClip::get_effects() const {
 
 int TimelineClip::get_effect_count() const {
     return effects.size();
+}
+
+// Split implementation
+TypedArray<TimelineClip> TimelineClip::split(double p_local_time) {
+    TypedArray<TimelineClip> result;
+    double dur = get_duration();
+    if (p_local_time <= 0.0 || p_local_time >= dur || dur <= 0.0) {
+        return result;
+    }
+
+    double source_split = source_in_point + p_local_time * playback_speed;
+
+    Ref<TimelineClip> first;
+    first.instantiate();
+    first->set_source_path(source_path);
+    first->set_timeline_start(timeline_start);
+    first->set_source_in_point(source_in_point);
+    first->set_source_out_point(source_split);
+    first->set_playback_speed(playback_speed);
+    first->set_position(position);
+    first->set_scale(scale);
+    first->set_rotation(rotation);
+    first->set_opacity(opacity);
+    first->set_anchor_point(anchor_point);
+
+    TypedArray<VideoEffect> fx = get_effects();
+    for (int i = 0; i < fx.size(); i++) {
+        first->add_effect(fx[i]);
+    }
+
+    Ref<TimelineClip> second;
+    second.instantiate();
+    second->set_source_path(source_path);
+    second->set_timeline_start(timeline_start + p_local_time);
+    second->set_source_in_point(source_split);
+    second->set_source_out_point(source_out_point);
+    second->set_playback_speed(playback_speed);
+    second->set_position(position);
+    second->set_scale(scale);
+    second->set_rotation(rotation);
+    second->set_opacity(opacity);
+    second->set_anchor_point(anchor_point);
+
+    for (int i = 0; i < fx.size(); i++) {
+        second->add_effect(fx[i]);
+    }
+
+    result.push_back(first);
+    result.push_back(second);
+    return result;
 }
 
 // Transform implementations
