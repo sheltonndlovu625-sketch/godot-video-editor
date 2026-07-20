@@ -53,6 +53,7 @@ void TimelineClipNode::_bind_methods() {
     ADD_SIGNAL(MethodInfo("selected"));
     ADD_SIGNAL(MethodInfo("moved", PropertyInfo(Variant::FLOAT, "new_start")));
     ADD_SIGNAL(MethodInfo("trimmed", PropertyInfo(Variant::FLOAT, "new_start"), PropertyInfo(Variant::FLOAT, "new_duration"), PropertyInfo(Variant::FLOAT, "new_source_in")));
+    ADD_SIGNAL(MethodInfo("split_requested", PropertyInfo(Variant::FLOAT, "timeline_time")));
 
     BIND_ENUM_CONSTANT(DRAG_NONE);
     BIND_ENUM_CONSTANT(DRAG_MOVE);
@@ -296,7 +297,29 @@ void TimelineClipNode::refresh_thumbnails() {
     queue_redraw();
 }
 
-// ---- Drawing ----
+// ---- Drawing helpers ----
+
+void TimelineClipNode::_draw_split_handle(const Rect2 &p_rect) {
+    float split_w = Math::min(20.0f, p_rect.size.x * 0.3f);
+    float split_h = 10.0f;
+    if (split_w <= 8.0f) return;
+
+    float hx = p_rect.position.x + (p_rect.size.x - split_w) * 0.5f;
+    float hy = p_rect.position.y + 2.0f;
+
+    Vector2 top(hx + split_w * 0.5f, hy);
+    Vector2 bl(hx, hy + split_h);
+    Vector2 br(hx + split_w, hy + split_h);
+
+    PackedVector2Array poly;
+    poly.push_back(top);
+    poly.push_back(br);
+    poly.push_back(bl);
+    draw_colored_polygon(poly, Color(1, 1, 1, 0.9f));
+
+    // Vertical cut line
+    draw_line(Vector2(hx + split_w * 0.5f, hy), Vector2(hx + split_w * 0.5f, hy + split_h), Color(0.2f, 0.2f, 0.2f), 1.0f);
+}
 
 void TimelineClipNode::_draw_solid(const Rect2 &p_rect) {
     draw_rect(p_rect, base_color, true);
@@ -306,6 +329,8 @@ void TimelineClipNode::_draw_solid(const Rect2 &p_rect) {
         Color c = base_color.lightened(0.05f * Math::sin(t * Math_PI));
         draw_line(Vector2(x, p_rect.position.y + 2), Vector2(x, p_rect.position.y + p_rect.size.y - 2), c, 2.0f);
     }
+
+    _draw_split_handle(p_rect);
 
     if (selected) {
         draw_rect(p_rect, Color(1, 1, 1), false, 2.5f);
@@ -360,6 +385,8 @@ void TimelineClipNode::_draw_thumbnails(const Rect2 &p_rect) {
         }
     }
 
+    _draw_split_handle(p_rect);
+
     if (selected) {
         draw_rect(p_rect, Color(1, 1, 1), false, 2.5f);
         float hw = Math::min(handle_width, p_rect.size.x * 0.25f);
@@ -411,6 +438,20 @@ void TimelineClipNode::_gui_input(const Ref<InputEvent> &p_event) {
         if (touch->is_pressed()) {
             Vector2 pos = touch->get_position();
             float w = get_size().x;
+            float h = get_size().y;
+
+            // Check split handle first (top center)
+            float split_w = Math::min(20.0f, w * 0.3f);
+            float split_h = 10.0f;
+            if (split_w > 8.0f) {
+                Rect2 split_rect(Vector2((w - split_w) * 0.5f, 2.0f), Vector2(split_w, split_h));
+                if (split_rect.has_point(pos)) {
+                    double local_time = pos.x / (pixels_per_second * zoom);
+                    double timeline_time = clip->get_timeline_start() + local_time;
+                    emit_signal("split_requested", timeline_time);
+                    return;
+                }
+            }
 
             if (pos.x < handle_width && w > handle_width * 2.5f) {
                 drag_mode = DRAG_TRIM_LEFT;
