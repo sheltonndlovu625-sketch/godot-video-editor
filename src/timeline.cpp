@@ -27,6 +27,10 @@ void Timeline::_bind_methods() {
     ClassDB::bind_method(D_METHOD("step_backward"), &Timeline::step_backward);
     ClassDB::bind_method(D_METHOD("is_at_end"), &Timeline::is_at_end);
 
+    // Split bindings
+    ClassDB::bind_method(D_METHOD("split_at_time", "time"), &Timeline::split_at_time);
+    ClassDB::bind_method(D_METHOD("split_at_playhead"), &Timeline::split_at_playhead);
+
     // Text overlay bindings
     ClassDB::bind_method(D_METHOD("add_text_overlay", "overlay"), &Timeline::add_text_overlay);
     ClassDB::bind_method(D_METHOD("remove_text_overlay", "index"), &Timeline::remove_text_overlay);
@@ -163,6 +167,22 @@ void Timeline::step_backward() {
 
 bool Timeline::is_at_end() const {
     return playhead_time >= get_duration();
+}
+
+// ---- Split implementations ----
+
+int Timeline::split_at_time(double p_time) {
+    int count = 0;
+    for (int i = 0; i < tracks.size(); i++) {
+        if (tracks[i]->split_clip_at_time(p_time)) {
+            count++;
+        }
+    }
+    return count;
+}
+
+int Timeline::split_at_playhead() {
+    return split_at_time(playhead_time);
 }
 
 // ---- Text overlays ----
