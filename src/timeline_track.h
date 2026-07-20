@@ -52,6 +52,8 @@ public:
     TypedArray<TimelineClip> get_clips() const;
     double get_track_duration() const;
 
+    bool split_clip_at_time(double p_time);
+
     TimelineTrack();
     ~TimelineTrack();
 };
