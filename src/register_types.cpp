@@ -21,6 +21,15 @@
 #include "timeline_track_node.h"
 #include "timeline_ruler.h"
 
+// ---- NEW HEADERS ----
+#include "timeline_playhead.h"
+#include "preview_player.h"
+#include "project_serializer.h"
+#include "undo_redo_manager.h"
+#include "timeline_zoom_controller.h"
+#include "audio_waveform.h"
+// ---------------------
+
 extern "C" {
 #include <libavformat/avformat.h>
 }
@@ -46,9 +55,17 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         ClassDB::register_class<CaptionSegment>();
         ClassDB::register_class<AutoCaptionGenerator>();
         ClassDB::register_class<TimelineClipNode>();
-		ClassDB::register_class<TimelineTrackNode>();
-		ClassDB::register_class<TimelineRuler>();
+        ClassDB::register_class<TimelineTrackNode>();
+        ClassDB::register_class<TimelineRuler>();
 
+        // ---- NEW REGISTRATIONS ----
+        ClassDB::register_class<TimelinePlayhead>();
+        ClassDB::register_class<PreviewPlayer>();
+        ClassDB::register_class<ProjectSerializer>();
+        ClassDB::register_class<UndoRedoManager>();
+        ClassDB::register_class<TimelineZoomController>();
+        ClassDB::register_class<AudioWaveform>();
+        // ---------------------------
     }
 }
 
