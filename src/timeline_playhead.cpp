@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/input_event_screen_drag.hpp>
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
+#include <godot_cpp/classes/font.hpp>   // <-- ADD THIS LINE
 #include <godot_cpp/core/math.hpp>
 
 using namespace godot;
