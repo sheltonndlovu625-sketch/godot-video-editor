@@ -1,6 +1,7 @@
 // undo_redo_manager.cpp
 #include "undo_redo_manager.h"
-#include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/variant/utility.hpp>
+#include <godot_cpp/variant/utility.hpp>
 
 using namespace godot;
 
@@ -39,9 +40,9 @@ void UndoRedoManager::add_action(const String &p_name, const Callable &p_do, con
     current_index++;
 
     Variant result;
-    Callable::CallError err;
+    GDExtensionCallError err;
     action.do_callable.callp(nullptr, 0, result, err);
-    if (err.error != Callable::CallError::CALL_OK) {
+    if (err.error != GDEXTENSION_CALL_OK) {
         UtilityFunctions::push_error("[UndoRedoManager] Do failed: ", p_name);
     }
     emit_signal("history_changed");
@@ -51,9 +52,9 @@ void UndoRedoManager::undo() {
     if (!can_undo()) return;
     Action &action = history.write[current_index];
     Variant result;
-    Callable::CallError err;
+    GDExtensionCallError err;
     action.undo_callable.callp(nullptr, 0, result, err);
-    if (err.error != Callable::CallError::CALL_OK) {
+    if (err.error != GDEXTENSION_CALL_OK) {
         UtilityFunctions::push_error("[UndoRedoManager] Undo failed: ", action.name);
     }
     current_index--;
@@ -65,9 +66,9 @@ void UndoRedoManager::redo() {
     current_index++;
     Action &action = history.write[current_index];
     Variant result;
-    Callable::CallError err;
+    GDExtensionCallError err;
     action.do_callable.callp(nullptr, 0, result, err);
-    if (err.error != Callable::CallError::CALL_OK) {
+    if (err.error != GDEXTENSION_CALL_OK) {
         UtilityFunctions::push_error("[UndoRedoManager] Redo failed: ", action.name);
     }
     emit_signal("history_changed");
