@@ -6,7 +6,6 @@ A cross-platform video editor built in **Godot 4.4.1** with **FFmpeg**-powered M
 
 - **Native Godot VideoStreamPlayer** for playback (no custom decoder)
 - **FFmpeg H.264 encoder** for MP4 export via GDExtension
-- **TikTok-style 9:16 aspect-fit** with shader-based effects
 - **CameraServer integration** scaffold for live capture
 - **Cross-platform builds** via GitHub Actions:
   - Android (ARM64, ARMv7, x86_64)
