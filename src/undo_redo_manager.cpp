@@ -1,7 +1,7 @@
 // undo_redo_manager.cpp
 #include "undo_redo_manager.h"
-#include <godot_cpp/variant/utility.hpp>
-#include <godot_cpp/variant/utility.hpp>
+#include <godot_cpp/variant/utilities.hpp>
+#include <godot_cpp/variant/utilities.hpp>
 
 using namespace godot;
 
