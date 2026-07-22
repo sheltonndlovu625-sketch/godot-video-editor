@@ -32,10 +32,10 @@ Ref<Image> AudioWaveform::generate_waveform(const PackedFloat32Array &p_samples,
         float min_val = 0.0f;
         float max_val = 0.0f;
         int start_idx = x * samples_per_pixel * p_channels;
-        // FIX: cast p_samples.size() to int so both args are the same type for Math::min
-        int end_idx = Math::min(start_idx + samples_per_pixel * p_channels, (int)p_samples.size());
+        // FIX: explicit cast to int64_t so both args match Math::min<T>
+        int64_t end_idx = Math::min((int64_t)(start_idx + samples_per_pixel * p_channels), p_samples.size());
 
-        for (int i = start_idx; i < end_idx; i += p_channels) {
+        for (int i = start_idx; i < (int)end_idx; i += p_channels) {
             float sample = p_samples[i];
             if (sample < min_val) min_val = sample;
             if (sample > max_val) max_val = sample;
