@@ -70,8 +70,6 @@ private:
     void _draw_split_handle(const Rect2 &p_rect);
     void _ensure_thumbnails();
     Ref<Image> _extract_thumbnail_frame(double p_time);
-    void _start_drag(const Vector2 &p_pos);
-    void _update_drag(const Vector2 &p_relative);
 
 protected:
     static void _bind_methods();
