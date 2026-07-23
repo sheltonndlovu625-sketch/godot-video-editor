@@ -39,6 +39,36 @@ void TimelineClipNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_label_color"), &TimelineClipNode::get_label_color);
     ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "label_color"), "set_label_color", "get_label_color");
 
+    // ---- NEW: Selection inspector bindings ----
+    ClassDB::bind_method(D_METHOD("set_selection_border_color", "color"), &TimelineClipNode::set_selection_border_color);
+    ClassDB::bind_method(D_METHOD("get_selection_border_color"), &TimelineClipNode::get_selection_border_color);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "selection_border_color"), "set_selection_border_color", "get_selection_border_color");
+
+    ClassDB::bind_method(D_METHOD("set_selection_border_width", "width"), &TimelineClipNode::set_selection_border_width);
+    ClassDB::bind_method(D_METHOD("get_selection_border_width"), &TimelineClipNode::get_selection_border_width);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::FLOAT, "selection_border_width"), "set_selection_border_width", "get_selection_border_width");
+
+    ClassDB::bind_method(D_METHOD("set_selection_handle_color", "color"), &TimelineClipNode::set_selection_handle_color);
+    ClassDB::bind_method(D_METHOD("get_selection_handle_color"), &TimelineClipNode::get_selection_handle_color);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "selection_handle_color"), "set_selection_handle_color", "get_selection_handle_color");
+
+    ClassDB::bind_method(D_METHOD("set_handle_width", "width"), &TimelineClipNode::set_handle_width);
+    ClassDB::bind_method(D_METHOD("get_handle_width"), &TimelineClipNode::get_handle_width);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::FLOAT, "handle_width"), "set_handle_width", "get_handle_width");
+
+    ClassDB::bind_method(D_METHOD("set_selection_grip_color", "color"), &TimelineClipNode::set_selection_grip_color);
+    ClassDB::bind_method(D_METHOD("get_selection_grip_color"), &TimelineClipNode::get_selection_grip_color);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "selection_grip_color"), "set_selection_grip_color", "get_selection_grip_color");
+
+    ClassDB::bind_method(D_METHOD("set_split_handle_color", "color"), &TimelineClipNode::set_split_handle_color);
+    ClassDB::bind_method(D_METHOD("get_split_handle_color"), &TimelineClipNode::get_split_handle_color);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "split_handle_color"), "set_split_handle_color", "get_split_handle_color");
+
+    ClassDB::bind_method(D_METHOD("set_split_line_color", "color"), &TimelineClipNode::set_split_line_color);
+    ClassDB::bind_method(D_METHOD("get_split_line_color"), &TimelineClipNode::get_split_line_color);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "split_line_color"), "set_split_line_color", "get_split_line_color");
+    // -----------------------------------------
+
     // Display mode
     ClassDB::bind_method(D_METHOD("set_display_mode", "mode"), &TimelineClipNode::set_display_mode);
     ClassDB::bind_method(D_METHOD("get_display_mode"), &TimelineClipNode::get_display_mode);
@@ -185,6 +215,65 @@ Color TimelineClipNode::get_label_color() const {
     return label_color;
 }
 
+// ---- NEW: Selection customisation getters/setters ----
+
+void TimelineClipNode::set_selection_border_color(const Color &p_color) {
+    selection_border_color = p_color;
+    queue_redraw();
+}
+Color TimelineClipNode::get_selection_border_color() const {
+    return selection_border_color;
+}
+
+void TimelineClipNode::set_selection_border_width(float p_width) {
+    selection_border_width = Math::max(0.0f, p_width);
+    queue_redraw();
+}
+float TimelineClipNode::get_selection_border_width() const {
+    return selection_border_width;
+}
+
+void TimelineClipNode::set_selection_handle_color(const Color &p_color) {
+    selection_handle_color = p_color;
+    queue_redraw();
+}
+Color TimelineClipNode::get_selection_handle_color() const {
+    return selection_handle_color;
+}
+
+void TimelineClipNode::set_handle_width(float p_width) {
+    handle_width = Math::max(4.0f, p_width);
+    queue_redraw();
+}
+float TimelineClipNode::get_handle_width() const {
+    return handle_width;
+}
+
+void TimelineClipNode::set_selection_grip_color(const Color &p_color) {
+    selection_grip_color = p_color;
+    queue_redraw();
+}
+Color TimelineClipNode::get_selection_grip_color() const {
+    return selection_grip_color;
+}
+
+void TimelineClipNode::set_split_handle_color(const Color &p_color) {
+    split_handle_color = p_color;
+    queue_redraw();
+}
+Color TimelineClipNode::get_split_handle_color() const {
+    return split_handle_color;
+}
+
+void TimelineClipNode::set_split_line_color(const Color &p_color) {
+    split_line_color = p_color;
+    queue_redraw();
+}
+Color TimelineClipNode::get_split_line_color() const {
+    return split_line_color;
+}
+// ----------------------------------------------------
+
 // ---- Display mode ----
 
 void TimelineClipNode::set_display_mode(int p_mode) {
@@ -315,10 +404,10 @@ void TimelineClipNode::_draw_split_handle(const Rect2 &p_rect) {
     poly.push_back(top);
     poly.push_back(br);
     poly.push_back(bl);
-    draw_colored_polygon(poly, Color(1, 1, 1, 0.9f));
+    draw_colored_polygon(poly, split_handle_color);
 
     // Vertical cut line
-    draw_line(Vector2(hx + split_w * 0.5f, hy), Vector2(hx + split_w * 0.5f, hy + split_h), Color(0.2f, 0.2f, 0.2f), 1.0f);
+    draw_line(Vector2(hx + split_w * 0.5f, hy), Vector2(hx + split_w * 0.5f, hy + split_h), split_line_color, 1.0f);
 }
 
 void TimelineClipNode::_draw_solid(const Rect2 &p_rect) {
@@ -333,20 +422,20 @@ void TimelineClipNode::_draw_solid(const Rect2 &p_rect) {
     _draw_split_handle(p_rect);
 
     if (selected) {
-        draw_rect(p_rect, Color(1, 1, 1), false, 2.5f);
+        draw_rect(p_rect, selection_border_color, false, selection_border_width);
         float hw = Math::min(handle_width, p_rect.size.x * 0.25f);
         if (hw > 4.0f) {
             Rect2 left_handle = Rect2(p_rect.position + Vector2(2, 4), Vector2(hw - 2, p_rect.size.y - 8));
             Rect2 right_handle = Rect2(p_rect.position + Vector2(p_rect.size.x - hw, 4), Vector2(hw - 2, p_rect.size.y - 8));
-            draw_rect(left_handle, Color(1, 1, 1, 0.25f), true);
-            draw_rect(right_handle, Color(1, 1, 1, 0.25f), true);
+            draw_rect(left_handle, selection_handle_color, true);
+            draw_rect(right_handle, selection_handle_color, true);
 
             float grip_x1 = p_rect.position.x + hw * 0.5f;
             float grip_x2 = p_rect.position.x + p_rect.size.x - hw * 0.5f;
             for (int i = -1; i <= 1; i++) {
                 float gy = p_rect.position.y + p_rect.size.y * 0.5f + i * 4.0f;
-                draw_line(Vector2(grip_x1 - 2, gy), Vector2(grip_x1 + 2, gy), Color(1, 1, 1), 1.5f);
-                draw_line(Vector2(grip_x2 - 2, gy), Vector2(grip_x2 + 2, gy), Color(1, 1, 1), 1.5f);
+                draw_line(Vector2(grip_x1 - 2, gy), Vector2(grip_x1 + 2, gy), selection_grip_color, 1.5f);
+                draw_line(Vector2(grip_x2 - 2, gy), Vector2(grip_x2 + 2, gy), selection_grip_color, 1.5f);
             }
         }
     } else {
@@ -388,20 +477,20 @@ void TimelineClipNode::_draw_thumbnails(const Rect2 &p_rect) {
     _draw_split_handle(p_rect);
 
     if (selected) {
-        draw_rect(p_rect, Color(1, 1, 1), false, 2.5f);
+        draw_rect(p_rect, selection_border_color, false, selection_border_width);
         float hw = Math::min(handle_width, p_rect.size.x * 0.25f);
         if (hw > 4.0f) {
             Rect2 left_handle = Rect2(p_rect.position + Vector2(2, 4), Vector2(hw - 2, p_rect.size.y - 8));
             Rect2 right_handle = Rect2(p_rect.position + Vector2(p_rect.size.x - hw, 4), Vector2(hw - 2, p_rect.size.y - 8));
-            draw_rect(left_handle, Color(1, 1, 1, 0.25f), true);
-            draw_rect(right_handle, Color(1, 1, 1, 0.25f), true);
+            draw_rect(left_handle, selection_handle_color, true);
+            draw_rect(right_handle, selection_handle_color, true);
 
             float grip_x1 = p_rect.position.x + hw * 0.5f;
             float grip_x2 = p_rect.position.x + p_rect.size.x - hw * 0.5f;
             for (int i = -1; i <= 1; i++) {
                 float gy = p_rect.position.y + p_rect.size.y * 0.5f + i * 4.0f;
-                draw_line(Vector2(grip_x1 - 2, gy), Vector2(grip_x1 + 2, gy), Color(1, 1, 1), 1.5f);
-                draw_line(Vector2(grip_x2 - 2, gy), Vector2(grip_x2 + 2, gy), Color(1, 1, 1), 1.5f);
+                draw_line(Vector2(grip_x1 - 2, gy), Vector2(grip_x1 + 2, gy), selection_grip_color, 1.5f);
+                draw_line(Vector2(grip_x2 - 2, gy), Vector2(grip_x2 + 2, gy), selection_grip_color, 1.5f);
             }
         }
     } else {
