@@ -6,19 +6,30 @@
 using namespace godot;
 
 void TimelineClipNode::_bind_methods() {
+    // Core clip property — THIS WAS MISSING
     ClassDB::bind_method(D_METHOD("set_clip", "clip"), &TimelineClipNode::set_clip);
     ClassDB::bind_method(D_METHOD("get_clip"), &TimelineClipNode::get_clip);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::OBJECT, "clip", PROPERTY_HINT_RESOURCE_TYPE, "TimelineClip"), "set_clip", "get_clip");
+
     ClassDB::bind_method(D_METHOD("set_selected", "selected"), &TimelineClipNode::set_selected);
     ClassDB::bind_method(D_METHOD("is_selected"), &TimelineClipNode::is_selected);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::BOOL, "selected"), "set_selected", "is_selected");
+
     ClassDB::bind_method(D_METHOD("set_pixels_per_second", "pps"), &TimelineClipNode::set_pixels_per_second);
     ClassDB::bind_method(D_METHOD("get_pixels_per_second"), &TimelineClipNode::get_pixels_per_second);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::FLOAT, "pixels_per_second"), "set_pixels_per_second", "get_pixels_per_second");
+
     ClassDB::bind_method(D_METHOD("set_zoom", "zoom"), &TimelineClipNode::set_zoom);
     ClassDB::bind_method(D_METHOD("get_zoom"), &TimelineClipNode::get_zoom);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::FLOAT, "zoom"), "set_zoom", "get_zoom");
+
     ClassDB::bind_method(D_METHOD("set_is_video", "is_video"), &TimelineClipNode::set_is_video);
     ClassDB::bind_method(D_METHOD("get_is_video"), &TimelineClipNode::get_is_video);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::BOOL, "is_video"), "set_is_video", "get_is_video");
+
     ClassDB::bind_method(D_METHOD("update_layout"), &TimelineClipNode::update_layout);
 
-    // Customisation bindings
+    // Customisation
     ClassDB::bind_method(D_METHOD("set_custom_color", "color"), &TimelineClipNode::set_custom_color);
     ClassDB::bind_method(D_METHOD("get_custom_color"), &TimelineClipNode::get_custom_color);
     ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "custom_color"), "set_custom_color", "get_custom_color");
@@ -29,7 +40,7 @@ void TimelineClipNode::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("set_font", "font"), &TimelineClipNode::set_font);
     ClassDB::bind_method(D_METHOD("get_font"), &TimelineClipNode::get_font);
-    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::OBJECT, "font"), "set_font", "get_font");
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::OBJECT, "font", PROPERTY_HINT_RESOURCE_TYPE, "Font"), "set_font", "get_font");
 
     ClassDB::bind_method(D_METHOD("set_font_size", "size"), &TimelineClipNode::set_font_size);
     ClassDB::bind_method(D_METHOD("get_font_size"), &TimelineClipNode::get_font_size);
@@ -39,7 +50,7 @@ void TimelineClipNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_label_color"), &TimelineClipNode::get_label_color);
     ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "label_color"), "set_label_color", "get_label_color");
 
-    // ---- NEW: Selection inspector bindings ----
+    // Selection customisation
     ClassDB::bind_method(D_METHOD("set_selection_border_color", "color"), &TimelineClipNode::set_selection_border_color);
     ClassDB::bind_method(D_METHOD("get_selection_border_color"), &TimelineClipNode::get_selection_border_color);
     ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "selection_border_color"), "set_selection_border_color", "get_selection_border_color");
@@ -67,7 +78,6 @@ void TimelineClipNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_split_line_color", "color"), &TimelineClipNode::set_split_line_color);
     ClassDB::bind_method(D_METHOD("get_split_line_color"), &TimelineClipNode::get_split_line_color);
     ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::COLOR, "split_line_color"), "set_split_line_color", "get_split_line_color");
-    // -----------------------------------------
 
     // Display mode
     ClassDB::bind_method(D_METHOD("set_display_mode", "mode"), &TimelineClipNode::set_display_mode);
@@ -160,8 +170,6 @@ void TimelineClipNode::update_layout() {
     set_size(Vector2(w, get_size().y));
 }
 
-// ---- Customisation ----
-
 void TimelineClipNode::set_custom_color(const Color &p_color) {
     custom_color = p_color;
     if (use_custom_color) {
@@ -214,8 +222,6 @@ void TimelineClipNode::set_label_color(const Color &p_color) {
 Color TimelineClipNode::get_label_color() const {
     return label_color;
 }
-
-// ---- NEW: Selection customisation getters/setters ----
 
 void TimelineClipNode::set_selection_border_color(const Color &p_color) {
     selection_border_color = p_color;
@@ -272,9 +278,6 @@ void TimelineClipNode::set_split_line_color(const Color &p_color) {
 Color TimelineClipNode::get_split_line_color() const {
     return split_line_color;
 }
-// ----------------------------------------------------
-
-// ---- Display mode ----
 
 void TimelineClipNode::set_display_mode(int p_mode) {
     DisplayMode new_mode = (DisplayMode)p_mode;
@@ -299,8 +302,6 @@ float TimelineClipNode::get_thumb_size() const {
     return thumb_size;
 }
 
-// ---- Thumbnails ----
-
 Ref<Image> TimelineClipNode::_extract_thumbnail_frame(double p_time) {
     if (thumb_decoder.is_null()) {
         thumb_decoder.instantiate();
@@ -317,7 +318,6 @@ Ref<Image> TimelineClipNode::_extract_thumbnail_frame(double p_time) {
         return Ref<Image>();
     }
 
-    // Fit inside 1:1 square while preserving aspect
     float scale = Math::min(thumb_size / (float)vw, thumb_size / (float)vh);
     int dw = Math::round(vw * scale);
     int dh = Math::round(vh * scale);
@@ -330,7 +330,6 @@ Ref<Image> TimelineClipNode::_extract_thumbnail_frame(double p_time) {
         return Ref<Image>();
     }
 
-    // Letterbox into square
     Ref<Image> square = Image::create(thumb_size, thumb_size, false, Image::FORMAT_RGBA8);
     if (square.is_null()) {
         return frame;
@@ -386,8 +385,6 @@ void TimelineClipNode::refresh_thumbnails() {
     queue_redraw();
 }
 
-// ---- Drawing helpers ----
-
 void TimelineClipNode::_draw_split_handle(const Rect2 &p_rect) {
     float split_w = Math::min(20.0f, p_rect.size.x * 0.3f);
     float split_h = 10.0f;
@@ -406,7 +403,6 @@ void TimelineClipNode::_draw_split_handle(const Rect2 &p_rect) {
     poly.push_back(bl);
     draw_colored_polygon(poly, split_handle_color);
 
-    // Vertical cut line
     draw_line(Vector2(hx + split_w * 0.5f, hy), Vector2(hx + split_w * 0.5f, hy + split_h), split_line_color, 1.0f);
 }
 
@@ -450,7 +446,7 @@ void TimelineClipNode::_draw_thumbnails(const Rect2 &p_rect) {
 
     int count = thumbnail_textures.size();
     if (count == 0) {
-        _draw_solid(p_rect); // fallback
+        _draw_solid(p_rect);
         return;
     }
 
@@ -465,7 +461,6 @@ void TimelineClipNode::_draw_thumbnails(const Rect2 &p_rect) {
         Rect2 slice = Rect2(Vector2(x + i * thumb_w, y), Vector2(thumb_w, h));
 
         if (tex.is_valid()) {
-            // Texture is 1:1; centre it vertically inside the track height
             float draw_size = h;
             float draw_x = slice.position.x + (thumb_w - draw_size) * 0.5f;
             draw_texture_rect(tex, Rect2(Vector2(draw_x, y), Vector2(draw_size, draw_size)), false);
@@ -507,7 +502,6 @@ void TimelineClipNode::_draw() {
         _draw_solid(rect);
     }
 
-    // Label (both modes)
     if (rect.size.x > 60.0f && clip.is_valid()) {
         Ref<Font> draw_font = font.is_valid() ? font : get_theme_default_font();
         int draw_size = font_size > 0 ? font_size : 10;
@@ -519,44 +513,94 @@ void TimelineClipNode::_draw() {
     }
 }
 
+void TimelineClipNode::_start_drag(const Vector2 &p_pos) {
+    float w = get_size().x;
+
+    float split_w = Math::min(20.0f, w * 0.3f);
+    float split_h = 10.0f;
+    if (split_w > 8.0f) {
+        Rect2 split_rect(Vector2((w - split_w) * 0.5f, 2.0f), Vector2(split_w, split_h));
+        if (split_rect.has_point(p_pos)) {
+            double local_time = p_pos.x / (pixels_per_second * zoom);
+            double timeline_time = clip->get_timeline_start() + local_time;
+            emit_signal("split_requested", timeline_time);
+            return;
+        }
+    }
+
+    if (p_pos.x < handle_width && w > handle_width * 2.5f) {
+        drag_mode = DRAG_TRIM_LEFT;
+    } else if (p_pos.x > w - handle_width && w > handle_width * 2.5f) {
+        drag_mode = DRAG_TRIM_RIGHT;
+    } else {
+        drag_mode = DRAG_MOVE;
+        set_selected(true);
+        emit_signal("selected");
+    }
+
+    drag_start_pos = p_pos;
+    drag_start_timeline_start = clip->get_timeline_start();
+    drag_start_duration = clip->get_duration();
+    drag_start_source_in = clip->get_source_in_point();
+    drag_start_source_out = clip->get_source_out_point();
+}
+
+void TimelineClipNode::_update_drag(const Vector2 &p_relative) {
+    double dt = p_relative.x / (pixels_per_second * zoom);
+
+    switch (drag_mode) {
+        case DRAG_MOVE: {
+            double new_start = drag_start_timeline_start + dt;
+            if (new_start < 0.0) new_start = 0.0;
+            clip->set_timeline_start(new_start);
+            emit_signal("moved", new_start);
+            break;
+        }
+        case DRAG_TRIM_LEFT: {
+            double new_start = drag_start_timeline_start + dt;
+            double new_source_in = drag_start_source_in + dt;
+
+            if (new_source_in < 0.0) {
+                new_start -= new_source_in;
+                new_source_in = 0.0;
+            }
+
+            double min_dur = 0.1;
+            double max_source_in = drag_start_source_out - min_dur;
+            if (new_source_in > max_source_in) {
+                new_source_in = max_source_in;
+                new_start = drag_start_timeline_start + (new_source_in - drag_start_source_in);
+            }
+
+            clip->set_timeline_start(new_start);
+            clip->set_source_in_point(new_source_in);
+            emit_signal("trimmed", new_start, clip->get_duration(), new_source_in);
+            break;
+        }
+        case DRAG_TRIM_RIGHT: {
+            double new_source_out = drag_start_source_out + dt;
+            double min_dur = 0.1;
+            if (new_source_out < drag_start_source_in + min_dur) {
+                new_source_out = drag_start_source_in + min_dur;
+            }
+            clip->set_source_out_point(new_source_out);
+            emit_signal("trimmed", clip->get_timeline_start(), clip->get_duration(), clip->get_source_in_point());
+            break;
+        }
+        default:
+            break;
+    }
+    update_layout();
+}
+
 void TimelineClipNode::_gui_input(const Ref<InputEvent> &p_event) {
     if (clip.is_null()) return;
 
+    // Pure touch (Android device)
     Ref<InputEventScreenTouch> touch = p_event;
     if (touch.is_valid() && touch->get_index() == 0) {
         if (touch->is_pressed()) {
-            Vector2 pos = touch->get_position();
-            float w = get_size().x;
-            float h = get_size().y;
-
-            // Check split handle first (top center)
-            float split_w = Math::min(20.0f, w * 0.3f);
-            float split_h = 10.0f;
-            if (split_w > 8.0f) {
-                Rect2 split_rect(Vector2((w - split_w) * 0.5f, 2.0f), Vector2(split_w, split_h));
-                if (split_rect.has_point(pos)) {
-                    double local_time = pos.x / (pixels_per_second * zoom);
-                    double timeline_time = clip->get_timeline_start() + local_time;
-                    emit_signal("split_requested", timeline_time);
-                    return;
-                }
-            }
-
-            if (pos.x < handle_width && w > handle_width * 2.5f) {
-                drag_mode = DRAG_TRIM_LEFT;
-            } else if (pos.x > w - handle_width && w > handle_width * 2.5f) {
-                drag_mode = DRAG_TRIM_RIGHT;
-            } else {
-                drag_mode = DRAG_MOVE;
-                set_selected(true);
-                emit_signal("selected");
-            }
-
-            drag_start_pos = pos;
-            drag_start_timeline_start = clip->get_timeline_start();
-            drag_start_duration = clip->get_duration();
-            drag_start_source_in = clip->get_source_in_point();
-            drag_start_source_out = clip->get_source_out_point();
+            _start_drag(touch->get_position());
         } else {
             drag_mode = DRAG_NONE;
         }
@@ -565,51 +609,24 @@ void TimelineClipNode::_gui_input(const Ref<InputEvent> &p_event) {
 
     Ref<InputEventScreenDrag> drag = p_event;
     if (drag.is_valid() && drag_mode != DRAG_NONE && drag->get_index() == 0) {
-        Vector2 delta = drag->get_relative();
-        double dt = delta.x / (pixels_per_second * zoom);
+        _update_drag(drag->get_relative());
+        return;
+    }
 
-        switch (drag_mode) {
-            case DRAG_MOVE: {
-                double new_start = drag_start_timeline_start + dt;
-                if (new_start < 0.0) new_start = 0.0;
-                clip->set_timeline_start(new_start);
-                emit_signal("moved", new_start);
-                break;
-            }
-            case DRAG_TRIM_LEFT: {
-                double new_start = drag_start_timeline_start + dt;
-                double new_source_in = drag_start_source_in + dt;
-
-                if (new_source_in < 0.0) {
-                    new_start -= new_source_in;
-                    new_source_in = 0.0;
-                }
-
-                double min_dur = 0.1;
-                double max_source_in = drag_start_source_out - min_dur;
-                if (new_source_in > max_source_in) {
-                    new_source_in = max_source_in;
-                    new_start = drag_start_timeline_start + (new_source_in - drag_start_source_in);
-                }
-
-                clip->set_timeline_start(new_start);
-                clip->set_source_in_point(new_source_in);
-                emit_signal("trimmed", new_start, clip->get_duration(), new_source_in);
-                break;
-            }
-            case DRAG_TRIM_RIGHT: {
-                double new_source_out = drag_start_source_out + dt;
-                double min_dur = 0.1;
-                if (new_source_out < drag_start_source_in + min_dur) {
-                    new_source_out = drag_start_source_in + min_dur;
-                }
-                clip->set_source_out_point(new_source_out);
-                emit_signal("trimmed", clip->get_timeline_start(), clip->get_duration(), clip->get_source_in_point());
-                break;
-            }
-            default:
-                break;
+    // Mouse fallback (Android editor, stylus, Bluetooth mouse, desktop)
+    Ref<InputEventMouseButton> mb = p_event;
+    if (mb.is_valid() && mb->get_button_index() == MOUSE_BUTTON_LEFT) {
+        if (mb->is_pressed()) {
+            _start_drag(mb->get_position());
+        } else {
+            drag_mode = DRAG_NONE;
         }
-        update_layout();
+        return;
+    }
+
+    Ref<InputEventMouseMotion> mm = p_event;
+    if (mm.is_valid() && drag_mode != DRAG_NONE) {
+        _update_drag(mm->get_relative());
+        return;
     }
 }
