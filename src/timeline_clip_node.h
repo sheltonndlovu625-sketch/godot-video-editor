@@ -52,6 +52,15 @@ private:
     int font_size = 10;
     Color label_color = Color(1, 1, 1);
 
+    // ---- NEW: Selection customisation ----
+    Color selection_border_color = Color(1.0f, 0.85f, 0.2f);  // KineMaster-style yellow
+    float selection_border_width = 2.5f;
+    Color selection_handle_color = Color(1, 1, 1, 0.25f);
+    Color selection_grip_color = Color(1, 1, 1);
+    Color split_handle_color = Color(1, 1, 1, 0.9f);
+    Color split_line_color = Color(0.2f, 0.2f, 0.2f);
+    // --------------------------------------
+
     // Thumbnails
     DisplayMode display_mode = DISPLAY_SOLID;
     float thumb_size = 48.0f;
@@ -61,7 +70,7 @@ private:
 
     void _draw_solid(const Rect2 &p_rect);
     void _draw_thumbnails(const Rect2 &p_rect);
-    void _draw_split_handle(const Rect2 &p_rect);  // <-- ADDED
+    void _draw_split_handle(const Rect2 &p_rect);
     void _ensure_thumbnails();
     Ref<Image> _extract_thumbnail_frame(double p_time);
 
@@ -96,6 +105,23 @@ public:
     int get_font_size() const;
     void set_label_color(const Color &p_color);
     Color get_label_color() const;
+
+    // ---- NEW: Selection inspector properties ----
+    void set_selection_border_color(const Color &p_color);
+    Color get_selection_border_color() const;
+    void set_selection_border_width(float p_width);
+    float get_selection_border_width() const;
+    void set_selection_handle_color(const Color &p_color);
+    Color get_selection_handle_color() const;
+    void set_handle_width(float p_width);
+    float get_handle_width() const;
+    void set_selection_grip_color(const Color &p_color);
+    Color get_selection_grip_color() const;
+    void set_split_handle_color(const Color &p_color);
+    Color get_split_handle_color() const;
+    void set_split_line_color(const Color &p_color);
+    Color get_split_line_color() const;
+    // -------------------------------------------
 
     // Display mode
     void set_display_mode(int p_mode);
