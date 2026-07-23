@@ -5,6 +5,7 @@
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/classes/input_event_screen_touch.hpp>
 #include <godot_cpp/classes/input_event_screen_drag.hpp>
+#include <godot_cpp/classes/input_event_mouse.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/variant/vector2.hpp>
@@ -45,23 +46,19 @@ private:
     float handle_width = 12.0f;
     bool is_video = true;
 
-    // Inspector customisation
     bool use_custom_color = false;
     Color custom_color = Color(1, 1, 1);
     Ref<Font> font;
     int font_size = 10;
     Color label_color = Color(1, 1, 1);
 
-    // ---- NEW: Selection customisation ----
-    Color selection_border_color = Color(1.0f, 0.85f, 0.2f);  // KineMaster-style yellow
+    Color selection_border_color = Color(1.0f, 0.85f, 0.2f);
     float selection_border_width = 2.5f;
     Color selection_handle_color = Color(1, 1, 1, 0.25f);
     Color selection_grip_color = Color(1, 1, 1);
     Color split_handle_color = Color(1, 1, 1, 0.9f);
     Color split_line_color = Color(0.2f, 0.2f, 0.2f);
-    // --------------------------------------
 
-    // Thumbnails
     DisplayMode display_mode = DISPLAY_SOLID;
     float thumb_size = 48.0f;
     Ref<VideoDecoder> thumb_decoder;
@@ -73,6 +70,8 @@ private:
     void _draw_split_handle(const Rect2 &p_rect);
     void _ensure_thumbnails();
     Ref<Image> _extract_thumbnail_frame(double p_time);
+    void _start_drag(const Vector2 &p_pos);
+    void _update_drag(const Vector2 &p_relative);
 
 protected:
     static void _bind_methods();
@@ -93,7 +92,6 @@ public:
     bool get_is_video() const;
     void update_layout();
 
-    // Customisation
     void set_custom_color(const Color &p_color);
     Color get_custom_color() const;
     void set_use_custom_color(bool p_use);
@@ -106,7 +104,6 @@ public:
     void set_label_color(const Color &p_color);
     Color get_label_color() const;
 
-    // ---- NEW: Selection inspector properties ----
     void set_selection_border_color(const Color &p_color);
     Color get_selection_border_color() const;
     void set_selection_border_width(float p_width);
@@ -121,9 +118,7 @@ public:
     Color get_split_handle_color() const;
     void set_split_line_color(const Color &p_color);
     Color get_split_line_color() const;
-    // -------------------------------------------
 
-    // Display mode
     void set_display_mode(int p_mode);
     int get_display_mode() const;
     void set_thumb_size(float p_size);
