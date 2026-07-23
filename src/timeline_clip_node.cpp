@@ -513,94 +513,43 @@ void TimelineClipNode::_draw() {
     }
 }
 
-void TimelineClipNode::_start_drag(const Vector2 &p_pos) {
-    float w = get_size().x;
-
-    float split_w = Math::min(20.0f, w * 0.3f);
-    float split_h = 10.0f;
-    if (split_w > 8.0f) {
-        Rect2 split_rect(Vector2((w - split_w) * 0.5f, 2.0f), Vector2(split_w, split_h));
-        if (split_rect.has_point(p_pos)) {
-            double local_time = p_pos.x / (pixels_per_second * zoom);
-            double timeline_time = clip->get_timeline_start() + local_time;
-            emit_signal("split_requested", timeline_time);
-            return;
-        }
-    }
-
-    if (p_pos.x < handle_width && w > handle_width * 2.5f) {
-        drag_mode = DRAG_TRIM_LEFT;
-    } else if (p_pos.x > w - handle_width && w > handle_width * 2.5f) {
-        drag_mode = DRAG_TRIM_RIGHT;
-    } else {
-        drag_mode = DRAG_MOVE;
-        set_selected(true);
-        emit_signal("selected");
-    }
-
-    drag_start_pos = p_pos;
-    drag_start_timeline_start = clip->get_timeline_start();
-    drag_start_duration = clip->get_duration();
-    drag_start_source_in = clip->get_source_in_point();
-    drag_start_source_out = clip->get_source_out_point();
-}
-
-void TimelineClipNode::_update_drag(const Vector2 &p_relative) {
-    double dt = p_relative.x / (pixels_per_second * zoom);
-
-    switch (drag_mode) {
-        case DRAG_MOVE: {
-            double new_start = drag_start_timeline_start + dt;
-            if (new_start < 0.0) new_start = 0.0;
-            clip->set_timeline_start(new_start);
-            emit_signal("moved", new_start);
-            break;
-        }
-        case DRAG_TRIM_LEFT: {
-            double new_start = drag_start_timeline_start + dt;
-            double new_source_in = drag_start_source_in + dt;
-
-            if (new_source_in < 0.0) {
-                new_start -= new_source_in;
-                new_source_in = 0.0;
-            }
-
-            double min_dur = 0.1;
-            double max_source_in = drag_start_source_out - min_dur;
-            if (new_source_in > max_source_in) {
-                new_source_in = max_source_in;
-                new_start = drag_start_timeline_start + (new_source_in - drag_start_source_in);
-            }
-
-            clip->set_timeline_start(new_start);
-            clip->set_source_in_point(new_source_in);
-            emit_signal("trimmed", new_start, clip->get_duration(), new_source_in);
-            break;
-        }
-        case DRAG_TRIM_RIGHT: {
-            double new_source_out = drag_start_source_out + dt;
-            double min_dur = 0.1;
-            if (new_source_out < drag_start_source_in + min_dur) {
-                new_source_out = drag_start_source_in + min_dur;
-            }
-            clip->set_source_out_point(new_source_out);
-            emit_signal("trimmed", clip->get_timeline_start(), clip->get_duration(), clip->get_source_in_point());
-            break;
-        }
-        default:
-            break;
-    }
-    update_layout();
-}
-
 void TimelineClipNode::_gui_input(const Ref<InputEvent> &p_event) {
     if (clip.is_null()) return;
 
-    // Pure touch (Android device)
     Ref<InputEventScreenTouch> touch = p_event;
     if (touch.is_valid() && touch->get_index() == 0) {
         if (touch->is_pressed()) {
-            _start_drag(touch->get_position());
+            Vector2 pos = touch->get_position();
+            float w = get_size().x;
+
+            // Check split handle first (top center)
+            float split_w = Math::min(20.0f, w * 0.3f);
+            float split_h = 10.0f;
+            if (split_w > 8.0f) {
+                Rect2 split_rect(Vector2((w - split_w) * 0.5f, 2.0f), Vector2(split_w, split_h));
+                if (split_rect.has_point(pos)) {
+                    double local_time = pos.x / (pixels_per_second * zoom);
+                    double timeline_time = clip->get_timeline_start() + local_time;
+                    emit_signal("split_requested", timeline_time);
+                    return;
+                }
+            }
+
+            if (pos.x < handle_width && w > handle_width * 2.5f) {
+                drag_mode = DRAG_TRIM_LEFT;
+            } else if (pos.x > w - handle_width && w > handle_width * 2.5f) {
+                drag_mode = DRAG_TRIM_RIGHT;
+            } else {
+                drag_mode = DRAG_MOVE;
+                set_selected(true);
+                emit_signal("selected");
+            }
+
+            drag_start_pos = pos;
+            drag_start_timeline_start = clip->get_timeline_start();
+            drag_start_duration = clip->get_duration();
+            drag_start_source_in = clip->get_source_in_point();
+            drag_start_source_out = clip->get_source_out_point();
         } else {
             drag_mode = DRAG_NONE;
         }
@@ -609,24 +558,51 @@ void TimelineClipNode::_gui_input(const Ref<InputEvent> &p_event) {
 
     Ref<InputEventScreenDrag> drag = p_event;
     if (drag.is_valid() && drag_mode != DRAG_NONE && drag->get_index() == 0) {
-        _update_drag(drag->get_relative());
-        return;
-    }
+        Vector2 delta = drag->get_relative();
+        double dt = delta.x / (pixels_per_second * zoom);
 
-    // Mouse fallback (Android editor, stylus, Bluetooth mouse, desktop)
-    Ref<InputEventMouseButton> mb = p_event;
-    if (mb.is_valid() && mb->get_button_index() == MOUSE_BUTTON_LEFT) {
-        if (mb->is_pressed()) {
-            _start_drag(mb->get_position());
-        } else {
-            drag_mode = DRAG_NONE;
+        switch (drag_mode) {
+            case DRAG_MOVE: {
+                double new_start = drag_start_timeline_start + dt;
+                if (new_start < 0.0) new_start = 0.0;
+                clip->set_timeline_start(new_start);
+                emit_signal("moved", new_start);
+                break;
+            }
+            case DRAG_TRIM_LEFT: {
+                double new_start = drag_start_timeline_start + dt;
+                double new_source_in = drag_start_source_in + dt;
+
+                if (new_source_in < 0.0) {
+                    new_start -= new_source_in;
+                    new_source_in = 0.0;
+                }
+
+                double min_dur = 0.1;
+                double max_source_in = drag_start_source_out - min_dur;
+                if (new_source_in > max_source_in) {
+                    new_source_in = max_source_in;
+                    new_start = drag_start_timeline_start + (new_source_in - drag_start_source_in);
+                }
+
+                clip->set_timeline_start(new_start);
+                clip->set_source_in_point(new_source_in);
+                emit_signal("trimmed", new_start, clip->get_duration(), new_source_in);
+                break;
+            }
+            case DRAG_TRIM_RIGHT: {
+                double new_source_out = drag_start_source_out + dt;
+                double min_dur = 0.1;
+                if (new_source_out < drag_start_source_in + min_dur) {
+                    new_source_out = drag_start_source_in + min_dur;
+                }
+                clip->set_source_out_point(new_source_out);
+                emit_signal("trimmed", clip->get_timeline_start(), clip->get_duration(), clip->get_source_in_point());
+                break;
+            }
+            default:
+                break;
         }
-        return;
-    }
-
-    Ref<InputEventMouseMotion> mm = p_event;
-    if (mm.is_valid() && drag_mode != DRAG_NONE) {
-        _update_drag(mm->get_relative());
-        return;
+        update_layout();
     }
 }
