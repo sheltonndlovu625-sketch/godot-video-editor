@@ -63,6 +63,10 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     height = p_height;
     fps = p_fps;
 
+    // H.264 YUV420P requires even dimensions
+    if (width % 2 != 0) width++;
+    if (height % 2 != 0) height++;
+
     if (p_sample_rate > 0) {
         has_audio = true;
         sample_rate = p_sample_rate;
@@ -84,9 +88,12 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
         return false;
     }
 
-    const AVCodec *video_codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    // ------------------------------------------------------------------
+    // H.264 encoder (libx264)
+    // ------------------------------------------------------------------
+    const AVCodec *video_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
     if (!video_codec) {
-        UtilityFunctions::push_error("[VideoEncoder] MJPEG encoder not found");
+        UtilityFunctions::push_error("[VideoEncoder] H.264 encoder not found. Ensure FFmpeg is built with libx264.");
         return false;
     }
 
@@ -107,10 +114,20 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     video_codec_ctx->height = height;
     video_codec_ctx->time_base = (AVRational){1, fps};
     video_codec_ctx->framerate = (AVRational){fps, 1};
-    video_codec_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
+    video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    video_codec_ctx->bit_rate = p_video_bitrate;
+    video_codec_ctx->gop_size = fps * 2;      // 2-second GOP
+    video_codec_ctx->max_b_frames = 2;
 
     if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
         video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    }
+
+    // libx264-specific tuning
+    if (video_codec->id == AV_CODEC_ID_H264) {
+        av_opt_set(video_codec_ctx->priv_data, "preset", "fast", 0);
+        av_opt_set(video_codec_ctx->priv_data, "tune", "zerolatency", 0);
+        av_opt_set(video_codec_ctx->priv_data, "profile", "main", 0);
     }
 
     int ret = avcodec_open2(video_codec_ctx, video_codec, nullptr);
@@ -183,7 +200,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     }
 
     video_frame = av_frame_alloc();
-    video_frame->format = AV_PIX_FMT_YUVJ420P;
+    video_frame->format = AV_PIX_FMT_YUV420P;
     video_frame->width = width;
     video_frame->height = height;
     ret = av_frame_get_buffer(video_frame, 0);
@@ -196,7 +213,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
 
     sws_ctx = sws_getContext(
         width, height, AV_PIX_FMT_RGBA,
-        width, height, AV_PIX_FMT_YUVJ420P,
+        width, height, AV_PIX_FMT_YUV420P,
         SWS_BILINEAR, nullptr, nullptr, nullptr
     );
     if (!sws_ctx) {
@@ -254,7 +271,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     initialized = true;
     video_frame_count = 0;
     audio_samples_count = 0;
-    UtilityFunctions::print("[VideoEncoder] Opened: ", resolved_path);
+    UtilityFunctions::print("[VideoEncoder] Opened (H.264): ", resolved_path);
     return true;
 }
 
