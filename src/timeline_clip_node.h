@@ -37,7 +37,6 @@ private:
     bool selected = false;
     DragMode drag_mode = DRAG_NONE;
     bool drag_active = false;
-    Vector2 drag_accum;
     Vector2 drag_start_pos;
     double drag_start_timeline_start = 0.0;
     double drag_start_duration = 0.0;
