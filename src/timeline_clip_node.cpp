@@ -169,8 +169,11 @@ void TimelineClipNode::update_layout() {
     if (clip.is_null()) return;
     double dur = clip->get_duration();
     float w = Math::max(24.0f, (float)(dur * pixels_per_second * zoom));
-    set_custom_minimum_size(Vector2(w, 0));
-    set_size(Vector2(w, get_size().y));
+    // Only update if width actually changed — prevents layout fighting
+    if (Math::abs(get_size().x - w) > 0.5f) {
+        set_custom_minimum_size(Vector2(w, get_custom_minimum_size().y));
+        set_size(Vector2(w, get_size().y));
+    }
 }
 
 void TimelineClipNode::set_custom_color(const Color &p_color) {
