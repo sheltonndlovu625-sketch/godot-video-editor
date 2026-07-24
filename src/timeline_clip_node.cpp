@@ -126,6 +126,7 @@ Ref<TimelineClip> TimelineClipNode::get_clip() const {
 }
 
 void TimelineClipNode::set_selected(bool p_selected) {
+    if (selected == p_selected) return;
     selected = p_selected;
     queue_redraw();
 }
@@ -515,39 +516,6 @@ void TimelineClipNode::_draw() {
     }
 }
 
-void TimelineClipNode::_handle_press(const Vector2 &p_pos) {
-    float w = get_size().x;
-
-    // Check split handle first (top center)
-    float split_w = Math::min(20.0f, w * 0.3f);
-    float split_h = 10.0f;
-    if (split_w > 8.0f) {
-        Rect2 split_rect(Vector2((w - split_w) * 0.5f, 2.0f), Vector2(split_w, split_h));
-        if (split_rect.has_point(p_pos)) {
-            double local_time = p_pos.x / (pixels_per_second * zoom);
-            double timeline_time = clip->get_timeline_start() + local_time;
-            emit_signal("split_requested", timeline_time);
-            return;
-        }
-    }
-
-    if (p_pos.x < handle_width && w > handle_width * 2.5f) {
-        drag_mode = DRAG_TRIM_LEFT;
-    } else if (p_pos.x > w - handle_width && w > handle_width * 2.5f) {
-        drag_mode = DRAG_TRIM_RIGHT;
-    } else {
-        drag_mode = DRAG_MOVE;
-        set_selected(true);
-        emit_signal("selected");
-    }
-
-    drag_start_pos = p_pos;
-    drag_start_timeline_start = clip->get_timeline_start();
-    drag_start_duration = clip->get_duration();
-    drag_start_source_in = clip->get_source_in_point();
-    drag_start_source_out = clip->get_source_out_point();
-}
-
 void TimelineClipNode::_handle_drag(const Vector2 &p_relative) {
     double dt = p_relative.x / (pixels_per_second * zoom);
 
@@ -597,22 +565,58 @@ void TimelineClipNode::_handle_drag(const Vector2 &p_relative) {
 }
 
 void TimelineClipNode::_gui_input(const Ref<InputEvent> &p_event) {
-    if (clip.is_null()) return;
-
     // ---- TOUCH (when emulate-mouse-from-touch is OFF) ----
     Ref<InputEventScreenTouch> touch = p_event;
     if (touch.is_valid() && touch->get_index() == 0) {
         if (touch->is_pressed()) {
-            _handle_press(touch->get_position());
+            Vector2 pos = touch->get_position();
+            float w = get_size().x;
+
+            // Check split handle first (top center) — requires clip
+            if (clip.is_valid()) {
+                float split_w = Math::min(20.0f, w * 0.3f);
+                float split_h = 10.0f;
+                if (split_w > 8.0f) {
+                    Rect2 split_rect(Vector2((w - split_w) * 0.5f, 2.0f), Vector2(split_w, split_h));
+                    if (split_rect.has_point(pos)) {
+                        double local_time = pos.x / (pixels_per_second * zoom);
+                        double timeline_time = clip->get_timeline_start() + local_time;
+                        emit_signal("split_requested", timeline_time);
+                        return;
+                    }
+                }
+            }
+
+            if (clip.is_valid() && pos.x < handle_width && w > handle_width * 2.5f) {
+                drag_mode = DRAG_TRIM_LEFT;
+            } else if (clip.is_valid() && pos.x > w - handle_width && w > handle_width * 2.5f) {
+                drag_mode = DRAG_TRIM_RIGHT;
+            } else {
+                // Selection works even without a clip assigned
+                drag_mode = DRAG_MOVE;
+                set_selected(true);
+                emit_signal("selected");
+            }
+
+            if (clip.is_valid()) {
+                drag_start_pos = pos;
+                drag_start_timeline_start = clip->get_timeline_start();
+                drag_start_duration = clip->get_duration();
+                drag_start_source_in = clip->get_source_in_point();
+                drag_start_source_out = clip->get_source_out_point();
+            }
         } else {
             drag_mode = DRAG_NONE;
+            drag_active = false;
         }
         return;
     }
 
     Ref<InputEventScreenDrag> drag = p_event;
     if (drag.is_valid() && drag_mode != DRAG_NONE && drag->get_index() == 0) {
-        _handle_drag(drag->get_relative());
+        if (clip.is_valid()) {
+            _handle_drag(drag->get_relative());
+        }
         return;
     }
 
@@ -620,9 +624,44 @@ void TimelineClipNode::_gui_input(const Ref<InputEvent> &p_event) {
     Ref<InputEventMouseButton> mouse_btn = p_event;
     if (mouse_btn.is_valid() && mouse_btn->get_button_index() == MOUSE_BUTTON_LEFT) {
         if (mouse_btn->is_pressed()) {
-            _handle_press(mouse_btn->get_position());
+            Vector2 pos = mouse_btn->get_position();
+            float w = get_size().x;
+
+            // Check split handle first (top center) — requires clip
+            if (clip.is_valid()) {
+                float split_w = Math::min(20.0f, w * 0.3f);
+                float split_h = 10.0f;
+                if (split_w > 8.0f) {
+                    Rect2 split_rect(Vector2((w - split_w) * 0.5f, 2.0f), Vector2(split_w, split_h));
+                    if (split_rect.has_point(pos)) {
+                        double local_time = pos.x / (pixels_per_second * zoom);
+                        double timeline_time = clip->get_timeline_start() + local_time;
+                        emit_signal("split_requested", timeline_time);
+                        return;
+                    }
+                }
+            }
+
+            if (clip.is_valid() && pos.x < handle_width && w > handle_width * 2.5f) {
+                drag_mode = DRAG_TRIM_LEFT;
+            } else if (clip.is_valid() && pos.x > w - handle_width && w > handle_width * 2.5f) {
+                drag_mode = DRAG_TRIM_RIGHT;
+            } else {
+                drag_mode = DRAG_MOVE;
+                set_selected(true);
+                emit_signal("selected");
+            }
+
+            if (clip.is_valid()) {
+                drag_start_pos = pos;
+                drag_start_timeline_start = clip->get_timeline_start();
+                drag_start_duration = clip->get_duration();
+                drag_start_source_in = clip->get_source_in_point();
+                drag_start_source_out = clip->get_source_out_point();
+            }
         } else {
             drag_mode = DRAG_NONE;
+            drag_active = false;
         }
         return;
     }
@@ -630,7 +669,9 @@ void TimelineClipNode::_gui_input(const Ref<InputEvent> &p_event) {
     // NOTE: variable named "motion" NOT "mm" — "mm" collides with Android NDK macros
     Ref<InputEventMouseMotion> motion = p_event;
     if (motion.is_valid() && drag_mode != DRAG_NONE) {
-        _handle_drag(motion->get_relative());
+        if (clip.is_valid()) {
+            _handle_drag(motion->get_relative());
+        }
         return;
     }
 }
