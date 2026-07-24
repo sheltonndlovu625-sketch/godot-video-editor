@@ -46,7 +46,7 @@ private:
     static constexpr float DRAG_THRESHOLD = 6.0f;
     float pixels_per_second = 60.0f;
     float zoom = 1.0f;
-    float handle_width = 12.0f;
+    float handle_width = 28.0f;
     bool is_video = true;
 
     bool use_custom_color = false;
