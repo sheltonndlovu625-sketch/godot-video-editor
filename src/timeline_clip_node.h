@@ -5,7 +5,6 @@
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/classes/input_event_screen_touch.hpp>
 #include <godot_cpp/classes/input_event_screen_drag.hpp>
-#include <godot_cpp/classes/input_event_mouse.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/variant/vector2.hpp>
@@ -35,8 +34,10 @@ private:
     Ref<TimelineClip> clip;
     Color base_color = Color(0.2f, 0.5f, 0.95f);
     bool selected = false;
+    enum InputType { INPUT_NONE, INPUT_TOUCH, INPUT_MOUSE };
     DragMode drag_mode = DRAG_NONE;
     bool drag_active = false;
+    InputType drag_input_type = INPUT_NONE;
     Vector2 drag_start_pos;
     double drag_start_timeline_start = 0.0;
     double drag_start_duration = 0.0;
@@ -73,7 +74,7 @@ private:
     void _ensure_thumbnails();
     Ref<Image> _extract_thumbnail_frame(double p_time);
     void _handle_press(const Vector2 &p_pos);
-    void _handle_drag(const Vector2 &p_relative);
+    void _handle_drag(const Vector2 &p_current_pos);
 
 protected:
     static void _bind_methods();
