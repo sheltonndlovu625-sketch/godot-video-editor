@@ -39,7 +39,8 @@ private:
     bool drag_active = false;
     InputType drag_input_type = INPUT_NONE;
     Vector2 drag_start_pos;
-    Vector2 drag_start_node_position;   // <-- FIX: captured so left-trim can shift the node
+    Vector2 drag_start_node_position;
+    Vector2 drag_start_parent_pos;   // <-- FIX: stable parent-space origin for drag delta
     double drag_start_timeline_start = 0.0;
     double drag_start_duration = 0.0;
     double drag_start_source_in = 0.0;
@@ -55,6 +56,7 @@ private:
     Ref<Font> font;
     int font_size = 10;
     Color label_color = Color(1, 1, 1);
+    bool show_source_name = true;   // <-- NEW: inspector toggle for filename label
 
     Color selection_border_color = Color(1.0f, 0.85f, 0.2f);
     float selection_border_width = 2.5f;
@@ -128,6 +130,10 @@ public:
     void set_thumb_size(float p_size);
     float get_thumb_size() const;
     void refresh_thumbnails();
+
+    // NEW: source name label toggle
+    void set_show_source_name(bool p_show);
+    bool get_show_source_name() const;
 
     TimelineClipNode();
 };
