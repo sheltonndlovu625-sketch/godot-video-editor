@@ -20,15 +20,15 @@
 #include "timeline_clip_node.h"
 #include "timeline_track_node.h"
 #include "timeline_ruler.h"
+#include "transition_effect.h" 
+#include "transition_handle_node.h" // ---- INCLUDED TRANSITION HANDLE NODE ----
 
-// ---- NEW HEADERS ----
 #include "timeline_playhead.h"
 #include "preview_player.h"
 #include "project_serializer.h"
 #include "undo_redo_manager.h"
 #include "timeline_zoom_controller.h"
 #include "audio_waveform.h"
-// ---------------------
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -39,33 +39,38 @@ using namespace godot;
 void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
     if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
         avformat_network_init();
+        
         ClassDB::register_class<VideoEncoder>();
         ClassDB::register_class<VideoDecoder>();
         ClassDB::register_class<VideoStreamFFmpeg>();
         ClassDB::register_class<VideoStreamPlaybackFFmpeg>();
+        
         ClassDB::register_class<TimelineClip>();
         ClassDB::register_class<TimelineTrack>();
         ClassDB::register_class<Timeline>();
         ClassDB::register_class<TimelineRenderer>();
+        
         ClassDB::register_class<VideoEffect>();
         ClassDB::register_class<ShaderVideoEffect>();
         ClassDB::register_class<ColorCorrectionEffect>();
+        ClassDB::register_class<TransitionEffect>(); 
+        
         ClassDB::register_class<TextOverlay>();
         ClassDB::register_class<ImageOverlay>();
         ClassDB::register_class<CaptionSegment>();
         ClassDB::register_class<AutoCaptionGenerator>();
+        
         ClassDB::register_class<TimelineClipNode>();
         ClassDB::register_class<TimelineTrackNode>();
         ClassDB::register_class<TimelineRuler>();
+        ClassDB::register_class<TransitionHandleNode>(); // ---- REGISTERED TRANSITION HANDLE NODE ----
 
-        // ---- NEW REGISTRATIONS ----
         ClassDB::register_class<TimelinePlayhead>();
         ClassDB::register_class<PreviewPlayer>();
         ClassDB::register_class<ProjectSerializer>();
         ClassDB::register_class<UndoRedoManager>();
         ClassDB::register_class<TimelineZoomController>();
         ClassDB::register_class<AudioWaveform>();
-        // ---------------------------
     }
 }
 
