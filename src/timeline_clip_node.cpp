@@ -88,6 +88,11 @@ void TimelineClipNode::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("refresh_thumbnails"), &TimelineClipNode::refresh_thumbnails);
 
+    // NEW: show source name label
+    ClassDB::bind_method(D_METHOD("set_show_source_name", "show"), &TimelineClipNode::set_show_source_name);
+    ClassDB::bind_method(D_METHOD("get_show_source_name"), &TimelineClipNode::get_show_source_name);
+    ClassDB::add_property("TimelineClipNode", PropertyInfo(Variant::BOOL, "show_source_name"), "set_show_source_name", "get_show_source_name");
+
     ADD_SIGNAL(MethodInfo("selected"));
     ADD_SIGNAL(MethodInfo("moved", PropertyInfo(Variant::FLOAT, "new_start")));
     ADD_SIGNAL(MethodInfo("trimmed", PropertyInfo(Variant::FLOAT, "new_start"), PropertyInfo(Variant::FLOAT, "new_duration"), PropertyInfo(Variant::FLOAT, "new_source_in")));
@@ -303,6 +308,17 @@ float TimelineClipNode::get_thumb_size() const {
     return thumb_size;
 }
 
+// NEW: source name label toggle
+void TimelineClipNode::set_show_source_name(bool p_show) {
+    if (show_source_name == p_show) return;
+    show_source_name = p_show;
+    queue_redraw();
+}
+
+bool TimelineClipNode::get_show_source_name() const {
+    return show_source_name;
+}
+
 Ref<Image> TimelineClipNode::_extract_thumbnail_frame(double p_time) {
     if (thumb_decoder.is_null()) {
         thumb_decoder.instantiate();
@@ -503,7 +519,8 @@ void TimelineClipNode::_draw() {
         _draw_solid(rect);
     }
 
-    if (rect.size.x > 60.0f && clip.is_valid()) {
+    // NEW: respect show_source_name toggle
+    if (show_source_name && rect.size.x > 60.0f && clip.is_valid()) {
         Ref<Font> draw_font = font.is_valid() ? font : get_theme_default_font();
         int draw_size = font_size > 0 ? font_size : 10;
         String fname = clip->get_source_path().get_file();
@@ -593,7 +610,8 @@ void TimelineClipNode::_handle_press(const Vector2 &p_pos) {
     }
 
     drag_start_pos = p_pos;
-    drag_start_node_position = get_position();   // <-- FIX: remember where the node is
+    drag_start_node_position = get_position();
+    drag_start_parent_pos = get_position() + p_pos;   // <-- FIX: stable parent-space origin
     drag_start_timeline_start = clip->get_timeline_start();
     drag_start_duration = clip->get_duration();
     drag_start_source_in = clip->get_source_in_point();
@@ -606,7 +624,9 @@ void TimelineClipNode::_handle_press(const Vector2 &p_pos) {
 }
 
 void TimelineClipNode::_handle_drag(const Vector2 &p_current_pos) {
-    Vector2 delta = p_current_pos - drag_start_pos;
+    // FIX: Compute delta in parent-space so it doesn't jitter when the node moves
+    Vector2 current_parent_pos = get_position() + p_current_pos;
+    Vector2 delta = current_parent_pos - drag_start_parent_pos;
 
     if (!drag_active && Math::abs(delta.x) < DRAG_THRESHOLD) {
         return;
@@ -616,8 +636,7 @@ void TimelineClipNode::_handle_drag(const Vector2 &p_current_pos) {
     double dt = delta.x / (pixels_per_second * zoom);
 
     UtilityFunctions::print("[ClipNode] DRAG mode=", (int)drag_mode,
-        " cur=", p_current_pos.x, " start=", drag_start_pos.x,
-        " delta=", delta.x, " dt=", dt);
+        " delta_px=", delta.x, " dt=", dt);
 
     switch (drag_mode) {
         case DRAG_MOVE: {
@@ -625,7 +644,6 @@ void TimelineClipNode::_handle_drag(const Vector2 &p_current_pos) {
             if (new_start < 0.0) new_start = 0.0;
             clip->set_timeline_start(new_start);
 
-            // FIX: Move the node so it follows the finger/mouse
             Vector2 pos = drag_start_node_position;
             pos.x += (new_start - drag_start_timeline_start) * pixels_per_second * zoom;
             set_position(pos);
