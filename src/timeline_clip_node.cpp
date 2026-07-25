@@ -593,6 +593,7 @@ void TimelineClipNode::_handle_press(const Vector2 &p_pos) {
     }
 
     drag_start_pos = p_pos;
+    drag_start_node_position = get_position();   // <-- FIX: remember where the node is
     drag_start_timeline_start = clip->get_timeline_start();
     drag_start_duration = clip->get_duration();
     drag_start_source_in = clip->get_source_in_point();
@@ -623,6 +624,12 @@ void TimelineClipNode::_handle_drag(const Vector2 &p_current_pos) {
             double new_start = drag_start_timeline_start + dt;
             if (new_start < 0.0) new_start = 0.0;
             clip->set_timeline_start(new_start);
+
+            // FIX: Move the node so it follows the finger/mouse
+            Vector2 pos = drag_start_node_position;
+            pos.x += (new_start - drag_start_timeline_start) * pixels_per_second * zoom;
+            set_position(pos);
+
             emit_signal("moved", new_start);
             break;
         }
@@ -644,6 +651,12 @@ void TimelineClipNode::_handle_drag(const Vector2 &p_current_pos) {
 
             clip->set_timeline_start(new_start);
             clip->set_source_in_point(new_source_in);
+
+            // FIX: Shift the node so the right edge stays pinned and the left edge moves
+            Vector2 pos = drag_start_node_position;
+            pos.x += (new_start - drag_start_timeline_start) * pixels_per_second * zoom;
+            set_position(pos);
+
             emit_signal("trimmed", new_start, clip->get_duration(), new_source_in);
             update_layout();
             break;
