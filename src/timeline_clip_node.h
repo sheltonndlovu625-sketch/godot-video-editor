@@ -39,6 +39,7 @@ private:
     bool drag_active = false;
     InputType drag_input_type = INPUT_NONE;
     Vector2 drag_start_pos;
+    Vector2 drag_start_node_position;   // <-- FIX: captured so left-trim can shift the node
     double drag_start_timeline_start = 0.0;
     double drag_start_duration = 0.0;
     double drag_start_source_in = 0.0;
