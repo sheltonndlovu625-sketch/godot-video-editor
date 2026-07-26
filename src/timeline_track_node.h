@@ -2,8 +2,9 @@
 #define TIMELINE_TRACK_NODE_H
 
 #include <godot_cpp/classes/control.hpp>
-#include <godot_cpp/classes/input_event.hpp>   // <-- ADD THIS
+#include <godot_cpp/classes/input_event.hpp>
 #include "timeline_track.h"
+#include "timeline_clip_container.h"
 
 namespace godot {
 
@@ -16,6 +17,9 @@ private:
     float zoom = 1.0f;
     float header_width = 50.0f;
     bool is_video_track = true;
+    TimelineClipContainer *clip_container = nullptr;
+
+    void _ensure_clip_container();
 
 protected:
     static void _bind_methods();
@@ -23,6 +27,7 @@ protected:
 public:
     void _draw() override;
     void _gui_input(const Ref<InputEvent> &p_event) override;
+    void _notification(int p_what);
 
     void set_track(const Ref<TimelineTrack> &p_track);
     Ref<TimelineTrack> get_track() const;
