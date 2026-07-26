@@ -1,5 +1,6 @@
 #include "timeline_clip_container.h"
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/core/memory.hpp>
 
 using namespace godot;
 
@@ -91,9 +92,6 @@ void TimelineClipContainer::_create_clip_nodes() {
         node->set_zoom(zoom);
         node->set_is_video(track->get_track_type() == TimelineTrack::TRACK_TYPE_VIDEO);
 
-        // Optional: connect signals if you want the track to re-sort after a move
-        // node->connect("moved", callable_mp(this, &TimelineClipContainer::_on_clip_moved));
-
         add_child(node, false, INTERNAL_MODE_DISABLED);
     }
 }
@@ -111,8 +109,8 @@ void TimelineClipContainer::_update_layout() {
         Ref<TimelineClip> clip = node->get_clip();
         if (clip.is_null()) continue;
 
-        // Position based on model data. The node may override this during drag,
-        // which is fine — we only call _update_layout() on zoom/PPS changes.
+        // Position from model data. During drag the node overrides this;
+        // we only snap back to truth when zoom/PPS changes or refresh() is called.
         float x = header_width + (float)(clip->get_timeline_start() * pps);
         Vector2 pos = node->get_position();
         pos.x = x;
