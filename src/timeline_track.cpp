@@ -2,6 +2,7 @@
 
 using namespace godot;
 
+// Static comparator for Vector::sort_custom
 struct ClipComparator {
     _FORCE_INLINE_ bool operator()(const Ref<TimelineClip> &a, const Ref<TimelineClip> &b) const {
         return a->get_timeline_start() < b->get_timeline_start();
@@ -17,10 +18,6 @@ void TimelineTrack::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_layer_index"), &TimelineTrack::get_layer_index);
     ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "layer_index"), "set_layer_index", "get_layer_index");
 
-    ClassDB::bind_method(D_METHOD("set_blend_mode", "mode"), &TimelineTrack::set_blend_mode);
-    ClassDB::bind_method(D_METHOD("get_blend_mode"), &TimelineTrack::get_blend_mode);
-    ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "blend_mode"), "set_blend_mode", "get_blend_mode");
-
     ClassDB::bind_method(D_METHOD("add_clip", "clip"), &TimelineTrack::add_clip);
     ClassDB::bind_method(D_METHOD("remove_clip", "index"), &TimelineTrack::remove_clip);
     ClassDB::bind_method(D_METHOD("clear_clips"), &TimelineTrack::clear_clips);
@@ -30,17 +27,15 @@ void TimelineTrack::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_clips"), &TimelineTrack::get_clips);
     ClassDB::bind_method(D_METHOD("get_track_duration"), &TimelineTrack::get_track_duration);
 
+    // NEW: split binding
     ClassDB::bind_method(D_METHOD("split_clip_at_time", "time"), &TimelineTrack::split_clip_at_time);
 
     BIND_ENUM_CONSTANT(TRACK_TYPE_VIDEO);
     BIND_ENUM_CONSTANT(TRACK_TYPE_AUDIO);
-    BIND_ENUM_CONSTANT(BLEND_MODE_NORMAL);
-    BIND_ENUM_CONSTANT(BLEND_MODE_ADD);
-    BIND_ENUM_CONSTANT(BLEND_MODE_MULTIPLY);
-    BIND_ENUM_CONSTANT(BLEND_MODE_SUBTRACT);
 }
 
 TimelineTrack::TimelineTrack() {}
+
 TimelineTrack::~TimelineTrack() {}
 
 void TimelineTrack::set_track_type(int p_type) {
@@ -57,14 +52,6 @@ void TimelineTrack::set_layer_index(int p_index) {
 
 int TimelineTrack::get_layer_index() const {
     return layer_index;
-}
-
-void TimelineTrack::set_blend_mode(int p_mode) {
-    blend_mode = (BlendMode)p_mode;
-}
-
-int TimelineTrack::get_blend_mode() const {
-    return (int)blend_mode;
 }
 
 void TimelineTrack::add_clip(const Ref<TimelineClip> &p_clip) {
@@ -123,23 +110,36 @@ double TimelineTrack::get_track_duration() const {
     return max_end;
 }
 
+// ------------------------------------------------------------------
+// NEW: Split a clip at a given timeline time
+// ------------------------------------------------------------------
+
 bool TimelineTrack::split_clip_at_time(double p_time) {
     Ref<TimelineClip> clip = get_clip_at_time(p_time);
     if (clip.is_null()) return false;
 
     double local_time = p_time - clip->get_timeline_start();
     TypedArray<TimelineClip> split = clip->split(local_time);
+
     if (split.size() != 2) return false;
 
-    // Remove original clip
+    // Find original clip index
+    int idx = -1;
     for (int i = 0; i < clips.size(); i++) {
         if (clips[i] == clip) {
-            clips.remove_at(i);
+            idx = i;
             break;
         }
     }
+    if (idx < 0) return false;
 
-    add_clip(split[0]);
-    add_clip(split[1]);
+    clips.remove_at(idx);
+    // Insert right first so left ends up at idx after both inserts
+    clips.insert(idx, split[1]); // right
+    clips.insert(idx, split[0]); // left
+
+    // Re-sort to maintain chronological order
+    clips.sort_custom<ClipComparator>();
+
     return true;
 }
