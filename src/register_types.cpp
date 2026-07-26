@@ -29,6 +29,10 @@
 #include "undo_redo_manager.h"
 #include "timeline_zoom_controller.h"
 #include "audio_waveform.h"
+#include "audio_fx.h"
+
+
+
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -66,9 +70,11 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         ClassDB::register_class<TransitionHandleNode>(); // ---- REGISTERED TRANSITION HANDLE NODE ----
 
         ClassDB::register_class<TimelinePlayhead>();
-        ClassDB::register_class<PreviewPlayer>();
+       
+ClassDB::register_class<AudioFX>();
+ ClassDB::register_class<PreviewPlayer>();
         ClassDB::register_class<ProjectSerializer>();
-        ClassDB::register_class<UndoRedoManager>();
+ ClassDB::register_class<UndoRedoManager>();
         ClassDB::register_class<TimelineZoomController>();
         ClassDB::register_class<AudioWaveform>();
     }
