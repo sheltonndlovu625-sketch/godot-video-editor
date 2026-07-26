@@ -5,6 +5,7 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 #include "video_effect.h"
+#include "audio_fx.h"
 
 namespace godot {
 
@@ -25,6 +26,9 @@ private:
     float rotation = 0.0f;
     float opacity = 1.0f;
     Vector2 anchor_point = Vector2(0.5, 0.5);
+
+    // Audio
+    Ref<AudioFX> audio_fx;
 
 protected:
     static void _bind_methods();
@@ -55,9 +59,6 @@ public:
     TypedArray<VideoEffect> get_effects() const;
     int get_effect_count() const;
 
-    // Split
-    TypedArray<TimelineClip> split(double p_local_time);
-
     // Transform
     void set_position(const Vector2 &p_pos);
     Vector2 get_position() const;
@@ -73,6 +74,10 @@ public:
 
     void set_anchor_point(const Vector2 &p_anchor);
     Vector2 get_anchor_point() const;
+
+    // Audio FX
+    void set_audio_fx(const Ref<AudioFX> &p_fx);
+    Ref<AudioFX> get_audio_fx() const;
 
     TimelineClip();
     ~TimelineClip();
