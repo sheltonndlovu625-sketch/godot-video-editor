@@ -25,10 +25,10 @@ public:
     };
 
 private:
+    Vector<Ref<TimelineClip>> clips;
     TrackType track_type = TRACK_TYPE_VIDEO;
     int layer_index = 0;
-    Vector<Ref<TimelineClip>> clips;
-    BlendMode blend_mode = BLEND_MODE_NORMAL;
+    int blend_mode = BLEND_MODE_NORMAL;
 
 protected:
     static void _bind_methods();
