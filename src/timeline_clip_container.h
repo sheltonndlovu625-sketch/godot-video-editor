@@ -36,7 +36,7 @@ public:
     void set_header_width(float p_width);
     float get_header_width() const;
 
-    // Call this after adding/removing clips externally, or after a drag ends
+    // Call after external clip changes (drag finished, undo, etc.)
     void refresh();
 
     TimelineClipContainer();
