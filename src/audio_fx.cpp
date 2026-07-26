@@ -505,7 +505,9 @@ PackedFloat32Array AudioFX::process_audio(const PackedFloat32Array &p_buffer, in
     if (p_buffer.is_empty() || p_channels <= 0) return p_buffer;
     _ensure_state(p_sample_rate, p_channels);
 
-    PackedFloat32Array output = p_buffer.duplicate();
+    // FIX: duplicate() is not const in godot-cpp, use copy constructor instead
+    PackedFloat32Array output(p_buffer);
+
     int total_samples = output.size();
     int num_frames = total_samples / p_channels;
     if (num_frames == 0) return output;
