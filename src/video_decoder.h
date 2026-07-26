@@ -1,13 +1,13 @@
 #ifndef VIDEO_DECODER_H
 #define VIDEO_DECODER_H
 
+#include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/classes/image.hpp>
-#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
-#include <godot_cpp/templates/vector.hpp>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -15,6 +15,7 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
+#include <libavutil/hwcontext.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 }
@@ -26,6 +27,8 @@ class VideoDecoder : public RefCounted {
 
 private:
     AVFormatContext *format_ctx = nullptr;
+
+    // Reused packet — never alloc/free per frame
     AVPacket *packet = nullptr;
 
     AVCodecContext *video_codec_ctx = nullptr;
@@ -40,9 +43,7 @@ private:
     int scaled_height = 0;
     SwsContext *sws_ctx_scaled = nullptr;
 
-    enum AVPixelFormat sws_src_fmt = AV_PIX_FMT_NONE;
-    enum AVPixelFormat sws_scaled_src_fmt = AV_PIX_FMT_NONE;
-
+    // Double-buffered zero-copy output images
     Ref<Image> native_buffers[2];
     int native_write_idx = 0;
     Ref<Image> scaled_buffers[2];
@@ -55,6 +56,7 @@ private:
     AVFrame *audio_frame = nullptr;
     SwrContext *swr_ctx = nullptr;
 
+    // Reused audio conversion buffer — never alloc/free per frame
     float *audio_convert_buf = nullptr;
     int audio_convert_buf_samples = 0;
 
@@ -66,16 +68,9 @@ private:
     bool initialized = false;
     bool use_hwaccel = false;
     bool eof_reached = false;
-    enum AVPixelFormat hw_pix_fmt = AV_PIX_FMT_NONE;
+    enum AVHWDeviceType hw_device_type = AV_HWDEVICE_TYPE_NONE;
 
-    Vector<AVPacket*> video_packet_queue;
-    Vector<AVPacket*> audio_packet_queue;
-
-    void _queue_packet(AVPacket *p_packet);
-    void _flush_packet_queues();
-
-    Ref<Image> _decode_one_frame(int p_width, int p_height, SwsContext *&r_sws,
-                                 enum AVPixelFormat &r_last_src_fmt, Ref<Image> p_target);
+    Ref<Image> _decode_one_frame(int p_width, int p_height, SwsContext *&r_sws, Ref<Image> p_target);
 
 protected:
     static void _bind_methods();
@@ -92,15 +87,17 @@ public:
     int get_video_height() const;
     double get_video_fps() const;
     bool has_audio() const;
-    int get_audio_sample_rate() const;
-    int get_audio_channels() const;
     void close();
     bool is_open() const;
+
+    // ---- Audio format getters (needed for AudioFX) ----
+    int get_audio_sample_rate() const;
+    int get_audio_channels() const;
 
     VideoDecoder();
     ~VideoDecoder();
 };
 
-} // namespace godot
+}
 
 #endif
