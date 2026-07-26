@@ -1,7 +1,7 @@
 #include "timeline_track_node.h"
 #include <godot_cpp/classes/font.hpp>
 #include <godot_cpp/classes/input_event_screen_touch.hpp>
-
+#include <godot_cpp/core/memory.hpp>
 
 using namespace godot;
 
@@ -20,10 +20,39 @@ void TimelineTrackNode::_bind_methods() {
 
 TimelineTrackNode::TimelineTrackNode() {}
 
+void TimelineTrackNode::_notification(int p_what) {
+    if (p_what == NOTIFICATION_READY) {
+        _ensure_clip_container();
+    }
+    if (p_what == NOTIFICATION_RESIZED) {
+        if (clip_container) {
+            clip_container->set_position(Vector2(0, 0));
+            clip_container->set_size(get_size());
+        }
+    }
+}
+
+void TimelineTrackNode::_ensure_clip_container() {
+    if (clip_container) return;
+    clip_container = memnew(TimelineClipContainer);
+    add_child(clip_container, false, INTERNAL_MODE_FRONT);
+
+    // In TimelineTrackNode::_draw() or _ready()
+    clip_container->set_position(Vector2(0, 0));
+    clip_container->set_size(get_size());
+    clip_container->set_track(track);
+    clip_container->set_header_width(header_width);
+    clip_container->set_pixels_per_second(pixels_per_second);
+    clip_container->set_zoom(zoom);
+}
+
 void TimelineTrackNode::set_track(const Ref<TimelineTrack> &p_track) {
     track = p_track;
     if (track.is_valid()) {
         is_video_track = track->get_track_type() == TimelineTrack::TRACK_TYPE_VIDEO;
+    }
+    if (clip_container) {
+        clip_container->set_track(track);
     }
     queue_redraw();
 }
@@ -34,6 +63,9 @@ Ref<TimelineTrack> TimelineTrackNode::get_track() const {
 
 void TimelineTrackNode::set_pixels_per_second(float p_pps) {
     pixels_per_second = p_pps;
+    if (clip_container) {
+        clip_container->set_pixels_per_second(pixels_per_second);
+    }
 }
 
 float TimelineTrackNode::get_pixels_per_second() const {
@@ -42,6 +74,9 @@ float TimelineTrackNode::get_pixels_per_second() const {
 
 void TimelineTrackNode::set_zoom(float p_zoom) {
     zoom = p_zoom;
+    if (clip_container) {
+        clip_container->set_zoom(zoom);
+    }
 }
 
 float TimelineTrackNode::get_zoom() const {
@@ -50,6 +85,9 @@ float TimelineTrackNode::get_zoom() const {
 
 void TimelineTrackNode::set_header_width(float p_width) {
     header_width = p_width;
+    if (clip_container) {
+        clip_container->set_header_width(header_width);
+    }
     queue_redraw();
 }
 
@@ -81,7 +119,6 @@ void TimelineTrackNode::_gui_input(const Ref<InputEvent> &p_event) {
         Vector2 pos = touch->get_position();
         if (pos.x > header_width) {
             double t = (pos.x - header_width) / (pixels_per_second * zoom);
-            // FIX: Math::max instead of maxf
             emit_signal("seek_requested", Math::max(0.0f, (float)t));
         }
     }
