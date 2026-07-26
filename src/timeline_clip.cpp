@@ -58,6 +58,9 @@ void TimelineClip::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_audio_fx", "fx"), &TimelineClip::set_audio_fx);
     ClassDB::bind_method(D_METHOD("get_audio_fx"), &TimelineClip::get_audio_fx);
     ClassDB::add_property("TimelineClip", PropertyInfo(Variant::OBJECT, "audio_fx", PROPERTY_HINT_RESOURCE_TYPE, "AudioFX"), "set_audio_fx", "get_audio_fx");
+
+    // Split binding
+    ClassDB::bind_method(D_METHOD("split", "local_time"), &TimelineClip::split);
 }
 
 TimelineClip::TimelineClip() {}
@@ -188,4 +191,54 @@ void TimelineClip::set_audio_fx(const Ref<AudioFX> &p_fx) {
 
 Ref<AudioFX> TimelineClip::get_audio_fx() const {
     return audio_fx;
+}
+
+// ------------------------------------------------------------------
+// Split
+// ------------------------------------------------------------------
+
+TypedArray<TimelineClip> TimelineClip::split(double p_local_time) {
+    TypedArray<TimelineClip> result;
+    double dur = get_duration();
+
+    // Cannot split at edges — return self as single element
+    if (p_local_time <= 0.0 || p_local_time >= dur || dur <= 0.0) {
+        result.push_back(Ref<TimelineClip>(this));
+        return result;
+    }
+
+    // Map timeline-local time to source time
+    double source_split = source_in_point + p_local_time * playback_speed;
+
+    Ref<TimelineClip> left;
+    left.instantiate();
+    left->set_source_path(source_path);
+    left->set_timeline_start(timeline_start);
+    left->set_source_in_point(source_in_point);
+    left->set_source_out_point(source_split);
+    left->set_playback_speed(playback_speed);
+    left->set_position(position);
+    left->set_scale(scale);
+    left->set_rotation(rotation);
+    left->set_opacity(opacity);
+    left->set_anchor_point(anchor_point);
+    left->set_audio_fx(audio_fx);
+
+    Ref<TimelineClip> right;
+    right.instantiate();
+    right->set_source_path(source_path);
+    right->set_timeline_start(timeline_start + p_local_time);
+    right->set_source_in_point(source_split);
+    right->set_source_out_point(source_out_point);
+    right->set_playback_speed(playback_speed);
+    right->set_position(position);
+    right->set_scale(scale);
+    right->set_rotation(rotation);
+    right->set_opacity(opacity);
+    right->set_anchor_point(anchor_point);
+    right->set_audio_fx(audio_fx);
+
+    result.push_back(left);
+    result.push_back(right);
+    return result;
 }
