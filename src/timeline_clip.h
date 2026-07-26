@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector2.hpp>
+#include <godot_cpp/variant/typed_array.hpp>
 #include "video_effect.h"
 #include "audio_fx.h"
 
@@ -78,6 +79,9 @@ public:
     // Audio FX
     void set_audio_fx(const Ref<AudioFX> &p_fx);
     Ref<AudioFX> get_audio_fx() const;
+
+    // Split at timeline-local time (0..duration). Returns 1 or 2 clips.
+    TypedArray<TimelineClip> split(double p_local_time);
 
     TimelineClip();
     ~TimelineClip();
