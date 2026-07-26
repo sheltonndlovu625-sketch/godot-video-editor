@@ -2,7 +2,6 @@
 
 using namespace godot;
 
-// Static comparator for Vector::sort_custom
 struct ClipComparator {
     _FORCE_INLINE_ bool operator()(const Ref<TimelineClip> &a, const Ref<TimelineClip> &b) const {
         return a->get_timeline_start() < b->get_timeline_start();
@@ -18,7 +17,6 @@ void TimelineTrack::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_layer_index"), &TimelineTrack::get_layer_index);
     ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "layer_index"), "set_layer_index", "get_layer_index");
 
-    // NEW: blend mode bindings
     ClassDB::bind_method(D_METHOD("set_blend_mode", "mode"), &TimelineTrack::set_blend_mode);
     ClassDB::bind_method(D_METHOD("get_blend_mode"), &TimelineTrack::get_blend_mode);
     ClassDB::add_property("TimelineTrack", PropertyInfo(Variant::INT, "blend_mode"), "set_blend_mode", "get_blend_mode");
@@ -33,10 +31,10 @@ void TimelineTrack::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_track_duration"), &TimelineTrack::get_track_duration);
 
     ClassDB::bind_method(D_METHOD("split_clip_at_time", "time"), &TimelineTrack::split_clip_at_time);
+    ClassDB::bind_method(D_METHOD("sort_clips"), &TimelineTrack::sort_clips); // <-- BUG FIX
 
     BIND_ENUM_CONSTANT(TRACK_TYPE_VIDEO);
     BIND_ENUM_CONSTANT(TRACK_TYPE_AUDIO);
-
     BIND_ENUM_CONSTANT(BLEND_MODE_NORMAL);
     BIND_ENUM_CONSTANT(BLEND_MODE_ADD);
     BIND_ENUM_CONSTANT(BLEND_MODE_MULTIPLY);
@@ -62,13 +60,12 @@ int TimelineTrack::get_layer_index() const {
     return layer_index;
 }
 
-// NEW: blend mode implementations
 void TimelineTrack::set_blend_mode(int p_mode) {
-    blend_mode = p_mode;
+    blend_mode = (BlendMode)p_mode;
 }
 
 int TimelineTrack::get_blend_mode() const {
-    return blend_mode;
+    return (int)blend_mode;
 }
 
 void TimelineTrack::add_clip(const Ref<TimelineClip> &p_clip) {
@@ -133,22 +130,22 @@ bool TimelineTrack::split_clip_at_time(double p_time) {
 
     double local_time = p_time - clip->get_timeline_start();
     TypedArray<TimelineClip> split = clip->split(local_time);
-
     if (split.size() != 2) return false;
 
-    int idx = -1;
     for (int i = 0; i < clips.size(); i++) {
         if (clips[i] == clip) {
-            idx = i;
+            clips.remove_at(i);
             break;
         }
     }
-    if (idx < 0) return false;
 
-    clips.remove_at(idx);
-    clips.insert(idx, split[1]);
-    clips.insert(idx, split[0]);
-    clips.sort_custom<ClipComparator>();
-
+    add_clip(split[0]);
+    add_clip(split[1]);
     return true;
 }
+
+// ---- BUG FIX ----
+void TimelineTrack::sort_clips() {
+    clips.sort_custom<ClipComparator>();
+}
+// -----------------
