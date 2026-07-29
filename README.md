@@ -1,4 +1,4 @@
-# Godot Video Editor (Starter Project)
+# Godot Video Editor
 
 A cross-platform video editor built in **Godot 4.4.1** with **FFmpeg**-powered MP4 export via GDExtension.
 
