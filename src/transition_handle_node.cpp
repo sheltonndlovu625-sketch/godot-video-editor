@@ -2,6 +2,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/global_constants.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 
 using namespace godot;
 
@@ -18,6 +19,16 @@ void TransitionHandleNode::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_handle_color"), &TransitionHandleNode::get_handle_color);
     ClassDB::add_property("TransitionHandleNode", PropertyInfo(Variant::COLOR, "handle_color"), "set_handle_color", "get_handle_color");
 
+    // ---- NEW: image slot in the Inspector ----
+    ClassDB::bind_method(D_METHOD("set_texture_path", "path"), &TransitionHandleNode::set_texture_path);
+    ClassDB::bind_method(D_METHOD("get_texture_path"), &TransitionHandleNode::get_texture_path);
+    ClassDB::add_property(
+        "TransitionHandleNode",
+        PropertyInfo(Variant::STRING, "texture_path", PROPERTY_HINT_FILE, "*.png,*.jpg,*.jpeg,*.webp,*.tga,*.bmp"),
+        "set_texture_path",
+        "get_texture_path"
+    );
+
     ADD_SIGNAL(MethodInfo("duration_changed", PropertyInfo(Variant::FLOAT, "new_duration")));
     ADD_SIGNAL(MethodInfo("drag_started"));
     ADD_SIGNAL(MethodInfo("drag_ended"));
@@ -27,7 +38,7 @@ TransitionHandleNode::TransitionHandleNode() {
     dragging = false;
     drag_start_x = 0.0f;
     transition_duration = 0.0f;
-    max_duration = 5.0f; 
+    max_duration = 5.0f;
     handle_color = Color(0.0, 1.0, 0.0, 0.8); // Green tint matching previous style
 
     set_mouse_filter(MOUSE_FILTER_PASS);
@@ -40,17 +51,23 @@ TransitionHandleNode::~TransitionHandleNode() {}
 void TransitionHandleNode::_notification(int p_what) {
     if (p_what == NOTIFICATION_DRAW) {
         Vector2 size = get_size();
-        
-        // Draw the main handle body
-        draw_rect(Rect2(0, 0, size.x, size.y), handle_color, true);
-        
-        // Draw a white outline for visibility against dark timelines
-        draw_rect(Rect2(0, 0, size.x, size.y), Color(1.0, 1.0, 1.0, 1.0), false, 1.0);
-        
-        // Draw two little grip lines in the center
-        float center_x = size.x / 2.0f;
-        draw_line(Vector2(center_x - 2, size.y * 0.3f), Vector2(center_x - 2, size.y * 0.7f), Color(1.0, 1.0, 1.0, 0.5), 1.0);
-        draw_line(Vector2(center_x + 2, size.y * 0.3f), Vector2(center_x + 2, size.y * 0.7f), Color(1.0, 1.0, 1.0, 0.5), 1.0);
+
+        // If we have a thumbnail/cover image, draw it inside the handle rect
+        if (cached_texture.is_valid()) {
+            draw_texture_rect(cached_texture, Rect2(Vector2(), size), false);
+
+            // Subtle outline so it still reads as a draggable handle
+            draw_rect(Rect2(Vector2(), size), Color(1.0, 1.0, 1.0, 0.4), false, 1.0);
+        } else {
+            // ---- Default "switch" look when no image/effect is set ----
+            draw_rect(Rect2(0, 0, size.x, size.y), handle_color, true);
+            draw_rect(Rect2(0, 0, size.x, size.y), Color(1.0, 1.0, 1.0, 1.0), false, 1.0);
+
+            // Two little grip lines in the center
+            float center_x = size.x / 2.0f;
+            draw_line(Vector2(center_x - 2, size.y * 0.3f), Vector2(center_x - 2, size.y * 0.7f), Color(1.0, 1.0, 1.0, 0.5), 1.0);
+            draw_line(Vector2(center_x + 2, size.y * 0.3f), Vector2(center_x + 2, size.y * 0.7f), Color(1.0, 1.0, 1.0, 0.5), 1.0);
+        }
     }
 }
 
@@ -73,15 +90,15 @@ void TransitionHandleNode::_gui_input(const Ref<InputEvent> &p_event) {
     if (mm.is_valid() && dragging) {
         float current_x = get_global_mouse_position().x;
         float delta_x = current_x - drag_start_x;
-        drag_start_x = current_x; 
-        
-        // Timeline scale multiplier: pixels per second. 
+        drag_start_x = current_x;
+
+        // Timeline scale multiplier: pixels per second.
         // Note: You can link this to your TimelineZoomController later.
-        float pixels_per_second = 100.0f; 
-        
+        float pixels_per_second = 100.0f;
+
         float delta_time = delta_x / pixels_per_second;
         float new_duration = CLAMP(transition_duration + delta_time, 0.0f, max_duration);
-        
+
         if (new_duration != transition_duration) {
             set_transition_duration(new_duration);
             emit_signal("duration_changed", transition_duration);
@@ -117,4 +134,40 @@ void TransitionHandleNode::set_handle_color(const Color &p_color) {
 
 Color TransitionHandleNode::get_handle_color() const {
     return handle_color;
+}
+
+// ============================================================================
+// NEW: Inspector image slot
+// ============================================================================
+
+void TransitionHandleNode::set_texture_path(const String &p_path) {
+    if (texture_path == p_path) return;
+
+    texture_path = p_path;
+    image_loaded = false;
+    cached_image.unref();
+    cached_texture.unref();
+
+    if (!texture_path.is_empty()) {
+        String resolved = texture_path;
+        if (resolved.begins_with("user://") || resolved.begins_with("res://")) {
+            ProjectSettings *ps = ProjectSettings::get_singleton();
+            if (ps) resolved = ps->globalize_path(resolved);
+        }
+
+        cached_image = Image::load_from_file(resolved);
+        if (cached_image.is_valid()) {
+            cached_texture.instantiate();
+            cached_texture->set_image(cached_image);
+            image_loaded = true;
+        } else {
+            UtilityFunctions::push_error("[TransitionHandleNode] Failed to load image: ", texture_path);
+        }
+    }
+
+    queue_redraw();
+}
+
+String TransitionHandleNode::get_texture_path() const {
+    return texture_path;
 }
