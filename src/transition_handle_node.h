@@ -5,6 +5,9 @@
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
+#include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/variant/string.hpp>
 
 namespace godot {
 
@@ -17,6 +20,12 @@ private:
     float transition_duration;
     float max_duration;
     Color handle_color;
+
+    // ---- Thumbnail / cover image ----
+    String texture_path;
+    Ref<Image> cached_image;
+    Ref<ImageTexture> cached_texture;
+    bool image_loaded = false;
 
 protected:
     static void _bind_methods();
@@ -36,6 +45,10 @@ public:
 
     void set_handle_color(const Color &p_color);
     Color get_handle_color() const;
+
+    // Inspector image slot
+    void set_texture_path(const String &p_path);
+    String get_texture_path() const;
 };
 
 }
