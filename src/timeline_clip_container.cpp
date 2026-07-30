@@ -22,6 +22,12 @@ void TimelineClipContainer::_bind_methods() {
 
 TimelineClipContainer::TimelineClipContainer() {}
 
+void TimelineClipContainer::_notification(int p_what) {
+    if (p_what == NOTIFICATION_RESIZED) {
+        _update_layout();
+    }
+}
+
 void TimelineClipContainer::set_track(const Ref<TimelineTrack> &p_track) {
     if (track == p_track) return;
     track = p_track;
@@ -82,6 +88,8 @@ void TimelineClipContainer::_create_clip_nodes() {
     if (track.is_null()) return;
 
     TypedArray<TimelineClip> clips = track->get_clips();
+    float h = get_size().y;
+
     for (int i = 0; i < clips.size(); i++) {
         Ref<TimelineClip> clip = clips[i];
         if (clip.is_null()) continue;
@@ -92,6 +100,10 @@ void TimelineClipContainer::_create_clip_nodes() {
         node->set_zoom(zoom);
         node->set_is_video(track->get_track_type() == TimelineTrack::TRACK_TYPE_VIDEO);
 
+        // CRITICAL: initialise height so the node is actually visible
+        node->set_custom_minimum_size(Vector2(24.0f, h));
+        node->set_size(Vector2(100.0f, h));   // width is recomputed by update_layout()
+
         add_child(node, false, INTERNAL_MODE_DISABLED);
     }
 }
@@ -100,6 +112,7 @@ void TimelineClipContainer::_update_layout() {
     if (track.is_null()) return;
 
     float pps = pixels_per_second * zoom;
+    float h = get_size().y;
 
     TypedArray<Node> children = get_children();
     for (int i = 0; i < children.size(); i++) {
@@ -119,5 +132,9 @@ void TimelineClipContainer::_update_layout() {
         node->set_pixels_per_second(pixels_per_second);
         node->set_zoom(zoom);
         node->update_layout();
+
+        // Keep height locked to container so _draw() always has a non-empty rect
+        node->set_size(Vector2(node->get_size().x, h));
+        node->set_custom_minimum_size(Vector2(node->get_custom_minimum_size().x, h));
     }
 }
