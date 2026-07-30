@@ -82,9 +82,9 @@ COMMON_FLAGS=(
     # --enable-encoder=h264_mediacodec
 
     # Optional: libx264 (requires GPL + building x264 for Android first)
-    # --enable-gpl
-    # --enable-libx264
-    # --enable-encoder=libx264
+    --enable-gpl
+    --enable-libx264
+    --enable-encoder=libx264
 
     --enable-muxer=mp4
     --enable-muxer=mov
