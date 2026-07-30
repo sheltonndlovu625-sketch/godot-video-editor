@@ -77,15 +77,9 @@ COMMON_FLAGS=(
     --enable-encoder=mjpeg
     --enable-encoder=png
 
-    # Optional: Android hardware H.264 encoder (API 18+)
-    # If your FFmpeg supports it, uncomment:
-    # --enable-encoder=h264_mediacodec
+    --enable-encoder=h264_mediacodec
 
-    # Optional: libx264 (requires GPL + building x264 for Android first)
-    --enable-gpl
-    --enable-libx264
-    --enable-encoder=libx264
-
+   
     --enable-muxer=mp4
     --enable-muxer=mov
     --enable-muxer=image2
