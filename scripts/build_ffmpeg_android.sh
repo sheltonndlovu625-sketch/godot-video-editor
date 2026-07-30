@@ -34,7 +34,7 @@ COMMON_FLAGS=(
     --enable-cross-compile
     --disable-programs
     --disable-doc
-    --disable-shared
+    --disable-shared        # see note below about static vs shared
     --enable-static
     --enable-pic
     --disable-asm
@@ -51,6 +51,7 @@ COMMON_FLAGS=(
     --enable-swscale
     --enable-swresample
 
+    # Decoders (your existing ones)
     --enable-decoder=h264
     --enable-decoder=hevc
     --enable-decoder=mpeg4
@@ -61,7 +62,7 @@ COMMON_FLAGS=(
     --enable-decoder=mp3
     --enable-decoder=aac
 
-    # FIX: Enable MediaCodec hardware decoder (requires --enable-jni)
+    # MediaCodec hardware decoders
     --enable-jni
     --enable-mediacodec
     --enable-decoder=h264_mediacodec
@@ -70,9 +71,20 @@ COMMON_FLAGS=(
     --enable-decoder=vp8_mediacodec
     --enable-decoder=vp9_mediacodec
 
-    --enable-encoder=mjpeg
+    # ═══ ENCODERS — THESE WERE MISSING ═══
+    --enable-encoder=mpeg4        # Built-in software MPEG4 (guaranteed to work)
     --enable-encoder=aac
+    --enable-encoder=mjpeg
     --enable-encoder=png
+
+    # Optional: Android hardware H.264 encoder (API 18+)
+    # If your FFmpeg supports it, uncomment:
+    # --enable-encoder=h264_mediacodec
+
+    # Optional: libx264 (requires GPL + building x264 for Android first)
+    # --enable-gpl
+    # --enable-libx264
+    # --enable-encoder=libx264
 
     --enable-muxer=mp4
     --enable-muxer=mov
@@ -88,6 +100,7 @@ COMMON_FLAGS=(
     --enable-parser=h264
     --enable-parser=hevc
 )
+
 
 build_arch() {
     local ARCH=$1
