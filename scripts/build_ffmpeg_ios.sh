@@ -64,6 +64,10 @@ COMMON_FLAGS=(
     --enable-encoder=mjpeg
     --enable-encoder=aac
     --enable-encoder=png
+    --enable-gpl
+    --enable-libx264
+    --enable-encoder=libx264
+
 
     --enable-muxer=mp4
     --enable-muxer=mov
