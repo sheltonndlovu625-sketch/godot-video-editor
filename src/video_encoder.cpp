@@ -89,11 +89,38 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     }
 
     // ------------------------------------------------------------------
-    // H.264 encoder (libx264)
+    // Video encoder selection (Hardware H.264 -> Software H.264 -> MPEG4 fallback)
     // ------------------------------------------------------------------
-    const AVCodec *video_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    const AVCodec *video_codec = nullptr;
+
+#if defined(__ANDROID__)
+    video_codec = avcodec_find_encoder_by_name("h264_mediacodec");
+    if (video_codec) {
+        UtilityFunctions::print("[VideoEncoder] Using Android MediaCodec H.264 hardware encoder");
+    }
+#elif defined(__APPLE__)
+    video_codec = avcodec_find_encoder_by_name("h264_videotoolbox");
+    if (video_codec) {
+        UtilityFunctions::print("[VideoEncoder] Using Apple VideoToolbox H.264 hardware encoder");
+    }
+#endif
+
     if (!video_codec) {
-        UtilityFunctions::push_error("[VideoEncoder] H.264 encoder not found. Ensure FFmpeg is built with libx264.");
+        video_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+        if (video_codec) {
+            UtilityFunctions::print("[VideoEncoder] Using software H.264 encoder: ", String(video_codec->name));
+        }
+    }
+
+    if (!video_codec) {
+        video_codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+        if (video_codec) {
+            UtilityFunctions::print("[VideoEncoder] H.264 not available, using MPEG4 fallback");
+        }
+    }
+
+    if (!video_codec) {
+        UtilityFunctions::push_error("[VideoEncoder] No suitable video encoder found");
         return false;
     }
 
@@ -123,8 +150,8 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
         video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
 
-    // libx264-specific tuning
-    if (video_codec->id == AV_CODEC_ID_H264) {
+    // Only set libx264 options when we actually have libx264
+    if (video_codec->id == AV_CODEC_ID_H264 && String(video_codec->name) == String("libx264")) {
         av_opt_set(video_codec_ctx->priv_data, "preset", "fast", 0);
         av_opt_set(video_codec_ctx->priv_data, "tune", "zerolatency", 0);
         av_opt_set(video_codec_ctx->priv_data, "profile", "main", 0);
@@ -271,7 +298,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     initialized = true;
     video_frame_count = 0;
     audio_samples_count = 0;
-    UtilityFunctions::print("[VideoEncoder] Opened (H.264): ", resolved_path);
+    UtilityFunctions::print("[VideoEncoder] Opened: ", resolved_path, " (codec: ", String(video_codec->name), ")");
     return true;
 }
 
