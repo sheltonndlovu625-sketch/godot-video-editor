@@ -7,6 +7,8 @@
 #include "audio_fx.h"
 
 using namespace godot;
+TimelineRenderer::TimelineRenderer() {}
+TimelineRenderer::~TimelineRenderer() {}
 
 void TimelineRenderer::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_timeline", "timeline"), &TimelineRenderer::set_timeline);
