@@ -83,7 +83,9 @@ private:
         const Vector<Transform2D> &p_transforms,
         const Vector<int> &p_blend_modes,
         const Vector<float> &p_opacities,
+        const Vector<Vector2> &p_texture_sizes,
         int p_width, int p_height);
+
 
     Vector2i _get_decode_size(int p_src_w, int p_src_h, int p_dst_w, int p_dst_h) const;
     void _cpu_blit_normal(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity);
