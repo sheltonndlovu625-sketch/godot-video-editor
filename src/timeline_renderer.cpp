@@ -39,6 +39,14 @@ Ref<Timeline> TimelineRenderer::get_timeline() const {
     return timeline;
 }
 
+void TimelineRenderer::set_aspect_ratio_mode(int p_mode) {
+    aspect_ratio_mode = (AspectRatioMode)p_mode;
+}
+
+int TimelineRenderer::get_aspect_ratio_mode() const {
+    return (int)aspect_ratio_mode;
+}
+
 Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
     if (decoders.has(p_path)) {
         return decoders[p_path];
@@ -366,6 +374,7 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
     }
 
     // ---- Collect text overlay layers (on top of video) ----
+       // ---- Collect text overlay layers (on top of video) ----
     TypedArray<TextOverlay> text_overlays = timeline->get_text_overlays_at_time(p_time);
     for (int i = 0; i < text_overlays.size(); i++) {
         Ref<TextOverlay> ov = text_overlays[i];
@@ -748,4 +757,92 @@ void TimelineRenderer::clear_cache() {
     black_frame.unref();
 
     last_render_time = -1.0;
+}
+
+// ------------------------------------------------------------------
+// Stubs for declared-but-not-yet-implemented private helpers
+// ------------------------------------------------------------------
+
+const Vector<Ref<TimelineTrack>> &TimelineRenderer::_get_sorted_video_tracks() {
+    static Vector<Ref<TimelineTrack>> empty;
+    if (timeline.is_null()) return empty;
+    if (!video_tracks_dirty) return cached_video_tracks;
+    cached_video_tracks.clear();
+    TypedArray<TimelineTrack> vt = timeline->get_video_tracks();
+    for (int i = 0; i < vt.size(); i++) cached_video_tracks.push_back(vt[i]);
+    struct TrackComparator {
+        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+            return a->get_layer_index() < b->get_layer_index();
+        }
+    };
+    cached_video_tracks.sort_custom<TrackComparator>();
+    video_tracks_dirty = false;
+    return cached_video_tracks;
+}
+
+const Vector<Ref<TimelineTrack>> &TimelineRenderer::_get_sorted_audio_tracks() {
+    static Vector<Ref<TimelineTrack>> empty;
+    if (timeline.is_null()) return empty;
+    if (!audio_tracks_dirty) return cached_audio_tracks;
+    cached_audio_tracks.clear();
+    TypedArray<TimelineTrack> at = timeline->get_audio_tracks();
+    for (int i = 0; i < at.size(); i++) cached_audio_tracks.push_back(at[i]);
+    struct TrackComparator {
+        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+            return a->get_layer_index() < b->get_layer_index();
+        }
+    };
+    cached_audio_tracks.sort_custom<TrackComparator>();
+    audio_tracks_dirty = false;
+    return cached_audio_tracks;
+}
+
+Vector2i TimelineRenderer::_get_decode_size(int p_src_w, int p_src_h, int p_dst_w, int p_dst_h) const {
+    // Placeholder: return destination size
+    return Vector2i(p_dst_w, p_dst_h);
+}
+
+void TimelineRenderer::_cpu_blit_normal(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity) {
+    if (!p_dst || !p_src) return;
+    p_dst->blit_rect(p_src, Rect2i(0, 0, p_src->get_width(), p_src->get_height()), Vector2i(p_dx, p_dy));
+}
+
+void TimelineRenderer::_cpu_blit_add(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity) {
+    // TODO: implement additive CPU blend
+    _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity);
+}
+
+void TimelineRenderer::_cpu_blit_multiply(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity) {
+    // TODO: implement multiply CPU blend
+    _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity);
+}
+
+void TimelineRenderer::_cpu_blit_subtract(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity) {
+    // TODO: implement subtract CPU blend
+    _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity);
+}
+
+void TimelineRenderer::_cpu_blit(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity, int p_blend_mode) {
+    switch (p_blend_mode) {
+        case TimelineTrack::BLEND_MODE_ADD:       _cpu_blit_add(p_dst, p_src, p_dx, p_dy, p_opacity); break;
+        case TimelineTrack::BLEND_MODE_MULTIPLY:  _cpu_blit_multiply(p_dst, p_src, p_dx, p_dy, p_opacity); break;
+        case TimelineTrack::BLEND_MODE_SUBTRACT:  _cpu_blit_subtract(p_dst, p_src, p_dx, p_dy, p_opacity); break;
+        case TimelineTrack::BLEND_MODE_NORMAL:
+        default:                                  _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity); break;
+    }
+}
+
+Ref<Image> TimelineRenderer::_cpu_render_text_overlay(const Ref<TextOverlay> &p_overlay, int p_canvas_w, int p_canvas_h, double p_time) {
+    if (p_overlay.is_null()) return Ref<Image>();
+    return p_overlay->render_to_image();
+}
+
+Ref<Image> TimelineRenderer::_cpu_render_image_overlay(const Ref<ImageOverlay> &p_overlay, int p_canvas_w, int p_canvas_h, double p_time) {
+    if (p_overlay.is_null()) return Ref<Image>();
+    return p_overlay->render_to_image();
+}
+
+Ref<Image> TimelineRenderer::_cpu_composite_frame(double p_time, int p_width, int p_height) {
+    // TODO: full CPU compositing with aspect ratio handling
+    return render_video_frame(p_time, p_width, p_height);
 }
