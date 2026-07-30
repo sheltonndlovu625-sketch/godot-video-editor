@@ -64,6 +64,9 @@ COMMON_FLAGS=(
     --enable-encoder=mjpeg
     --enable-encoder=aac
     --enable-encoder=png
+			--enable-encoder=mpeg4
+
+
   
 
 
