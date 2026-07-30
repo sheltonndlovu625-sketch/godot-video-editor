@@ -13,19 +13,22 @@ void TimelineRenderer::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_timeline"), &TimelineRenderer::get_timeline);
     ClassDB::add_property("TimelineRenderer", PropertyInfo(Variant::OBJECT, "timeline"), "set_timeline", "get_timeline");
 
+    ClassDB::bind_method(D_METHOD("set_aspect_ratio_mode", "mode"), &TimelineRenderer::set_aspect_ratio_mode);
+    ClassDB::bind_method(D_METHOD("get_aspect_ratio_mode"), &TimelineRenderer::get_aspect_ratio_mode);
+    ClassDB::add_property("TimelineRenderer", PropertyInfo(Variant::INT, "aspect_ratio_mode"), "set_aspect_ratio_mode", "get_aspect_ratio_mode");
+
     ClassDB::bind_method(D_METHOD("render_video_frame", "time", "width", "height"), &TimelineRenderer::render_video_frame);
     ClassDB::bind_method(D_METHOD("render_video_frame_to_texture", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_texture);
     ClassDB::bind_method(D_METHOD("render_video_frame_to_rid", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_rid);
     ClassDB::bind_method(D_METHOD("render_audio", "time", "num_samples", "sample_rate"), &TimelineRenderer::render_audio);
     ClassDB::bind_method(D_METHOD("export_to_file", "path", "width", "height", "fps", "video_bitrate", "sample_rate", "audio_bitrate"), &TimelineRenderer::export_to_file);
     ClassDB::bind_method(D_METHOD("clear_cache"), &TimelineRenderer::clear_cache);
+
+    BIND_ENUM_CONSTANT(ASPECT_FILL);
+    BIND_ENUM_CONSTANT(ASPECT_FIT);
+    BIND_ENUM_CONSTANT(ASPECT_STRETCH);
 }
 
-TimelineRenderer::TimelineRenderer() {}
-
-TimelineRenderer::~TimelineRenderer() {
-    clear_cache();
-}
 
 void TimelineRenderer::set_timeline(const Ref<Timeline> &p_timeline) {
     timeline = p_timeline;
