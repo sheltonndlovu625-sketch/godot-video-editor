@@ -90,15 +90,8 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
 
     bool seek = _needs_seek(p_time);
 
+    // ---- Composite video clips ----
     TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
-    if (video_tracks.is_empty()) {
-        if (black_frame.is_null() || black_frame->get_width() != p_width || black_frame->get_height() != p_height) {
-            black_frame = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-            black_frame->fill(Color(0, 0, 0, 1));
-        }
-        return black_frame;
-    }
-
     Vector<Ref<TimelineTrack>> sorted_tracks;
     for (int i = 0; i < video_tracks.size(); i++) {
         sorted_tracks.push_back(video_tracks[i]);
@@ -134,31 +127,72 @@ Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int 
 
     last_render_time = p_time;
 
+    // Check for text overlays so we know whether we can use the fast path
+    TypedArray<TextOverlay> overlays = timeline->get_text_overlays_at_time(p_time);
+    bool has_overlays = overlays.size() > 0;
+
+    Ref<Image> img;
     if (frames.is_empty()) {
-        if (black_frame.is_null() || black_frame->get_width() != p_width || black_frame->get_height() != p_height) {
-            black_frame = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-            black_frame->fill(Color(0, 0, 0, 1));
-        }
-        return black_frame;
-    }
-
-    if (frames.size() == 1) {
+        img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+        img->fill(Color(0, 0, 0, 1));
+    } else if (frames.size() == 1 && !has_overlays) {
+        // Fast path: no overlays, return decoder frame directly
         return frames[0];
+    } else if (frames.size() == 1) {
+        // Duplicate so we don't corrupt the decoder's double-buffer
+        img = frames[0]->duplicate();
+    } else {
+        img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+        img->fill(Color(0, 0, 0, 1));
+        for (int i = 0; i < frames.size(); i++) {
+            if (frames[i].is_valid()) {
+                img->blit_rect(frames[i], Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
+            }
+        }
     }
 
-    if (composite_buffer.is_null() || composite_buffer->get_width() != p_width || composite_buffer->get_height() != p_height) {
-        composite_buffer = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-    }
-    composite_buffer->fill(Color(0, 0, 0, 1));
+    // ---- Composite text overlays on top (same logic as export) ----
+    for (int i = 0; i < overlays.size(); i++) {
+        Ref<TextOverlay> ov = overlays[i];
+        if (ov.is_null()) continue;
 
-    for (int i = 0; i < frames.size(); i++) {
-        Ref<Image> top = frames[i];
-        if (top.is_null()) continue;
-        composite_buffer->blit_rect(top, Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
+        Ref<Image> text_img = ov->render_to_image();
+        if (text_img.is_null()) continue;
+
+        Vector2 pos = ov->get_position();
+        Vector2 anchor = ov->get_anchor_point();
+        int tw = text_img->get_width();
+        int th = text_img->get_height();
+
+        Vector2 blit_pos = pos - Vector2(anchor.x * tw, anchor.y * th);
+        int bx = int(blit_pos.x);
+        int by = int(blit_pos.y);
+
+        for (int y = 0; y < th; y++) {
+            int py = by + y;
+            if (py < 0 || py >= p_height) continue;
+            for (int x = 0; x < tw; x++) {
+                int px = bx + x;
+                if (px < 0 || px >= p_width) continue;
+                Color src = text_img->get_pixel(x, y);
+                if (src.a <= 0.001f) continue;
+                Color dst = img->get_pixel(px, py);
+                float out_a = src.a + dst.a * (1.0f - src.a);
+                if (out_a > 0.001f) {
+                    Color out;
+                    out.r = (src.r * src.a + dst.r * dst.a * (1.0f - src.a)) / out_a;
+                    out.g = (src.g * src.a + dst.g * dst.a * (1.0f - src.a)) / out_a;
+                    out.b = (src.b * src.a + dst.b * dst.a * (1.0f - src.a)) / out_a;
+                    out.a = out_a;
+                    img->set_pixel(px, py, out);
+                }
+            }
+        }
     }
 
-    return composite_buffer;
+    return img;
 }
+
 
 Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time, int p_width, int p_height) {
     Ref<Image> img = render_video_frame(p_time, p_width, p_height);
@@ -269,6 +303,7 @@ RID TimelineRenderer::_composite_gpu_with_transforms(RenderingServer *p_rs,
     const Vector<Transform2D> &p_transforms,
     const Vector<int> &p_blend_modes,
     const Vector<float> &p_opacities,
+    const Vector<Vector2> &p_texture_sizes,
     int p_width, int p_height) {
 
     _ensure_gpu_compositor(p_rs, p_width, p_height);
@@ -288,9 +323,14 @@ RID TimelineRenderer::_composite_gpu_with_transforms(RenderingServer *p_rs,
         Color modulate = Color(1.0f, 1.0f, 1.0f, p_opacities[i]);
         p_rs->canvas_item_set_self_modulate(item, modulate);
 
+        // Use native texture size if provided, otherwise full canvas
+        Vector2 size = (i < p_texture_sizes.size() && p_texture_sizes[i].x > 0.0f && p_texture_sizes[i].y > 0.0f)
+            ? p_texture_sizes[i]
+            : Vector2(p_width, p_height);
+
         p_rs->canvas_item_add_texture_rect(
             item,
-            Rect2(0, 0, p_width, p_height),
+            Rect2(Vector2(), size),
             p_textures[i]
         );
     }
@@ -298,6 +338,7 @@ RID TimelineRenderer::_composite_gpu_with_transforms(RenderingServer *p_rs,
     p_rs->viewport_set_update_mode(comp_viewport, RenderingServer::VIEWPORT_UPDATE_ONCE);
     return p_rs->viewport_get_texture(comp_viewport);
 }
+
 
 // ------------------------------------------------------------------
 // GPU + Effects + Transforms + Blend Modes + Text Overlays Preview Path
@@ -326,7 +367,10 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
     Vector<Transform2D> clip_transforms;
     Vector<int> clip_blend_modes;
     Vector<float> clip_opacities;
+    Vector<RID> temp_textures; // Track for cleanu
     Vector<RID> temp_textures; // Track for cleanup
+    Vector<Vector2> clip_texture_sizes; // NEW: per-layer native texture size
+
 
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
@@ -377,6 +421,7 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
 
     // ---- Collect text overlay layers (on top of video) ----
        // ---- Collect text overlay layers (on top of video) ----
+        // ---- Collect text overlay layers (on top of video) ----
     TypedArray<TextOverlay> text_overlays = timeline->get_text_overlays_at_time(p_time);
     for (int i = 0; i < text_overlays.size(); i++) {
         Ref<TextOverlay> ov = text_overlays[i];
@@ -387,14 +432,20 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
 
         clip_textures.push_back(text_tex);
 
+        Vector2 text_size = ov->get_render_size();
+        clip_texture_sizes.push_back(text_size);
+
         Vector2 pos = ov->get_position();
         Vector2 anchor = ov->get_anchor_point();
         float opacity = ov->get_opacity();
 
+        // FIX: Apply anchor offset so position is center-based, not top-left
+        Vector2 anchor_offset = Vector2(anchor.x * text_size.x, anchor.y * text_size.y);
+
         Transform2D t;
         t[0] = Vector2(1, 0);
         t[1] = Vector2(0, 1);
-        t[2] = pos;
+        t[2] = pos - anchor_offset;
 
         clip_transforms.push_back(t);
         clip_blend_modes.push_back(TimelineTrack::BLEND_MODE_NORMAL);
@@ -411,13 +462,14 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         RID black_tex = rs->texture_2d_create(black_frame);
         temp_textures.push_back(black_tex);
         clip_textures.push_back(black_tex);
+        clip_texture_sizes.push_back(Vector2(p_width, p_height));
         clip_transforms.push_back(Transform2D());
         clip_blend_modes.push_back(TimelineTrack::BLEND_MODE_NORMAL);
         clip_opacities.push_back(1.0f);
     }
 
     RID final_tex = _composite_gpu_with_transforms(rs,
-        clip_textures, clip_transforms, clip_blend_modes, clip_opacities,
+        clip_textures, clip_transforms, clip_blend_modes, clip_opacities, clip_texture_sizes,
         p_width, p_height);
 
     // Free temp textures we created (frame uploads)
@@ -426,6 +478,7 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
     }
 
     return final_tex;
+
 }
 
 Ref<Image> TimelineRenderer::composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height) {
