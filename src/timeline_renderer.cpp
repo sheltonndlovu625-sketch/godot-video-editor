@@ -367,7 +367,6 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
     Vector<Transform2D> clip_transforms;
     Vector<int> clip_blend_modes;
     Vector<float> clip_opacities;
-    Vector<RID> temp_textures; // Track for cleanu
     Vector<RID> temp_textures; // Track for cleanup
     Vector<Vector2> clip_texture_sizes; // NEW: per-layer native texture size
 
