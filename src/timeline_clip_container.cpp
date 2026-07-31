@@ -104,6 +104,10 @@ void TimelineClipContainer::_create_clip_nodes() {
         node->set_custom_minimum_size(Vector2(24.0f, h));
         node->set_size(Vector2(100.0f, h));   // width is recomputed by update_layout()
 
+        // FORCE thumbnail mode and hide source name label
+        node->set_display_mode(TimelineClipNode::DISPLAY_THUMBNAILS);
+        node->set_show_source_name(false);
+
         add_child(node, false, INTERNAL_MODE_DISABLED);
     }
 }
@@ -136,5 +140,8 @@ void TimelineClipContainer::_update_layout() {
         // Keep height locked to container so _draw() always has a non-empty rect
         node->set_size(Vector2(node->get_size().x, h));
         node->set_custom_minimum_size(Vector2(node->get_custom_minimum_size().x, h));
+
+        // Thumbnails can now be generated because width & height are final
+        node->refresh_thumbnails();
     }
 }
