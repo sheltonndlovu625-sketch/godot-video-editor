@@ -408,6 +408,12 @@ void TimelineClipNode::_ensure_thumbnails() {
     }
 }
 
+// MISSING METHOD — this was causing the Windows linker error
+void TimelineClipNode::refresh_thumbnails() {
+    thumbnails_dirty = true;
+    _ensure_thumbnails();
+    queue_redraw();
+}
 
 void TimelineClipNode::_draw_split_handle(const Rect2 &p_rect) {
     float split_w = Math::min(28.0f, p_rect.size.x * 0.3f);
