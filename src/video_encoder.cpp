@@ -63,7 +63,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     height = p_height;
     fps = p_fps;
 
-    // H.264 YUV420P requires even dimensions
+    // Even dimensions are required for YUV420P; multiples of 16 are safer for hardware encoders
     if (width % 2 != 0) width++;
     if (height % 2 != 0) height++;
 
@@ -89,38 +89,114 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     }
 
     // ------------------------------------------------------------------
-    // Video encoder selection (Hardware H.264 -> Software H.264 -> MPEG4 fallback)
+    // Video encoder selection with hardware-aware fallback chain
     // ------------------------------------------------------------------
     const AVCodec *video_codec = nullptr;
+    bool prefer_hw = false;
 
 #if defined(__ANDROID__)
     video_codec = avcodec_find_encoder_by_name("h264_mediacodec");
     if (video_codec) {
-        UtilityFunctions::print("[VideoEncoder] Using Android MediaCodec H.264 hardware encoder");
+        UtilityFunctions::print("[VideoEncoder] Probing Android MediaCodec H.264 hardware encoder");
+        prefer_hw = true;
     }
 #elif defined(__APPLE__)
     video_codec = avcodec_find_encoder_by_name("h264_videotoolbox");
     if (video_codec) {
-        UtilityFunctions::print("[VideoEncoder] Using Apple VideoToolbox H.264 hardware encoder");
+        UtilityFunctions::print("[VideoEncoder] Probing Apple VideoToolbox H.264 hardware encoder");
+        prefer_hw = true;
     }
 #endif
 
-    if (!video_codec) {
-        video_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-        if (video_codec) {
-            UtilityFunctions::print("[VideoEncoder] Using software H.264 encoder: ", String(video_codec->name));
+    // If hardware probe failed, or if we want to prepare a fallback, also locate software H.264
+    const AVCodec *sw_h264_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    const AVCodec *mpeg4_codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+
+    // Helper lambda to attempt opening a given video encoder
+    auto try_open_video = [&](const AVCodec *codec, bool is_hw) -> bool {
+        if (!codec) return false;
+
+        if (video_codec_ctx) {
+            avcodec_free_context(&video_codec_ctx);
+        }
+
+        video_codec_ctx = avcodec_alloc_context3(codec);
+        if (!video_codec_ctx) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate video codec context for: ", String(codec->name));
+            return false;
+        }
+
+        int enc_width = width;
+        int enc_height = height;
+
+        // Hardware encoders are much stricter about buffer alignment
+        if (is_hw) {
+            enc_width = (enc_width + 15) & ~15;
+            enc_height = (enc_height + 15) & ~15;
+            UtilityFunctions::print("[VideoEncoder] Hardware mode: aligned resolution to ", enc_width, "x", enc_height);
+        }
+
+        video_codec_ctx->width = enc_width;
+        video_codec_ctx->height = enc_height;
+        video_codec_ctx->time_base = (AVRational){1, fps};
+        video_codec_ctx->framerate = (AVRational){fps, 1};
+        video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+        video_codec_ctx->bit_rate = p_video_bitrate;
+        video_codec_ctx->gop_size = fps * 2;
+
+        // Hardware encoders rarely support B-frames; MPEG4 also dislikes them
+        if (is_hw || codec->id == AV_CODEC_ID_MPEG4) {
+            video_codec_ctx->max_b_frames = 0;
+        } else {
+            video_codec_ctx->max_b_frames = 2;
+        }
+
+        if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
+            video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        }
+
+        // Only set libx264 options when we actually have libx264
+        if (codec->id == AV_CODEC_ID_H264 && String(codec->name) == String("libx264")) {
+            av_opt_set(video_codec_ctx->priv_data, "preset", "fast", 0);
+            av_opt_set(video_codec_ctx->priv_data, "tune", "zerolatency", 0);
+            av_opt_set(video_codec_ctx->priv_data, "profile", "main", 0);
+        }
+
+        int ret = avcodec_open2(video_codec_ctx, codec, nullptr);
+        if (ret < 0) {
+            log_av_error(String("[VideoEncoder] avcodec_open2 failed for ") + String(codec->name), ret);
+            avcodec_free_context(&video_codec_ctx);
+            return false;
+        }
+
+        // Store aligned dimensions back so the scaler/output matches
+        width = enc_width;
+        height = enc_height;
+
+        UtilityFunctions::print("[VideoEncoder] Opened video encoder: ", String(codec->name));
+        return true;
+    };
+
+    // Try hardware first, then software H.264, then MPEG-4
+    bool opened = false;
+    if (prefer_hw && video_codec) {
+        opened = try_open_video(video_codec, true);
+        if (!opened) {
+            UtilityFunctions::print("[VideoEncoder] Hardware encoder failed, falling back to software H.264");
         }
     }
 
-    if (!video_codec) {
-        video_codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
-        if (video_codec) {
-            UtilityFunctions::print("[VideoEncoder] H.264 not available, using MPEG4 fallback");
-        }
+    if (!opened && sw_h264_codec) {
+        opened = try_open_video(sw_h264_codec, false);
     }
 
-    if (!video_codec) {
-        UtilityFunctions::push_error("[VideoEncoder] No suitable video encoder found");
+    if (!opened && mpeg4_codec) {
+        UtilityFunctions::print("[VideoEncoder] H.264 not available, using MPEG4 fallback");
+        opened = try_open_video(mpeg4_codec, false);
+    }
+
+    if (!opened) {
+        UtilityFunctions::push_error("[VideoEncoder] No suitable video encoder could be opened");
         return false;
     }
 
@@ -131,39 +207,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     }
     video_stream->id = format_ctx->nb_streams - 1;
 
-    video_codec_ctx = avcodec_alloc_context3(video_codec);
-    if (!video_codec_ctx) {
-        UtilityFunctions::push_error("[VideoEncoder] Could not allocate video codec context");
-        return false;
-    }
-
-    video_codec_ctx->width = width;
-    video_codec_ctx->height = height;
-    video_codec_ctx->time_base = (AVRational){1, fps};
-    video_codec_ctx->framerate = (AVRational){fps, 1};
-    video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    video_codec_ctx->bit_rate = p_video_bitrate;
-    video_codec_ctx->gop_size = fps * 2;      // 2-second GOP
-    video_codec_ctx->max_b_frames = 2;
-
-    if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
-        video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-    }
-
-    // Only set libx264 options when we actually have libx264
-    if (video_codec->id == AV_CODEC_ID_H264 && String(video_codec->name) == String("libx264")) {
-        av_opt_set(video_codec_ctx->priv_data, "preset", "fast", 0);
-        av_opt_set(video_codec_ctx->priv_data, "tune", "zerolatency", 0);
-        av_opt_set(video_codec_ctx->priv_data, "profile", "main", 0);
-    }
-
-    int ret = avcodec_open2(video_codec_ctx, video_codec, nullptr);
-    if (ret < 0) {
-        log_av_error("Could not open video codec", ret);
-        return false;
-    }
-
-    ret = avcodec_parameters_from_context(video_stream->codecpar, video_codec_ctx);
+    int ret = avcodec_parameters_from_context(video_stream->codecpar, video_codec_ctx);
     if (ret < 0) {
         log_av_error("Could not copy video codec params", ret);
         return false;
@@ -298,7 +342,7 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     initialized = true;
     video_frame_count = 0;
     audio_samples_count = 0;
-    UtilityFunctions::print("[VideoEncoder] Opened: ", resolved_path, " (codec: ", String(video_codec->name), ")");
+    UtilityFunctions::print("[VideoEncoder] Opened: ", resolved_path, " (codec: ", String(video_codec_ctx->codec->name), ", ", width, "x", height, ")");
     return true;
 }
 
