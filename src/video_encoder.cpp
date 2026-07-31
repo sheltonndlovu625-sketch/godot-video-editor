@@ -164,7 +164,9 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
 
         int ret = avcodec_open2(video_codec_ctx, codec, nullptr);
         if (ret < 0) {
-            log_av_error(String("[VideoEncoder] avcodec_open2 failed for ") + String(codec->name), ret);
+            String fail_msg = String("[VideoEncoder] avcodec_open2 failed for ") + String(codec->name);
+            CharString fail_utf8 = fail_msg.utf8();
+            log_av_error(fail_utf8.get_data(), ret);
             avcodec_free_context(&video_codec_ctx);
             return false;
         }
