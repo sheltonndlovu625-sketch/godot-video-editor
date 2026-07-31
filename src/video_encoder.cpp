@@ -63,6 +63,10 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
     height = p_height;
     fps = p_fps;
 
+    // Remember the original source resolution before we align for the encoder
+    src_width = p_width;
+    src_height = p_height;
+
     // Even dimensions are required for YUV420P; multiples of 16 are safer for hardware encoders
     if (width % 2 != 0) width++;
     if (height % 2 != 0) height++;
@@ -284,9 +288,10 @@ bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int
 
     packet = av_packet_alloc();
 
+    // Source = original resolution, Dest = aligned encoder resolution
     sws_ctx = sws_getContext(
-        width, height, AV_PIX_FMT_RGBA,
-        width, height, AV_PIX_FMT_YUV420P,
+        src_width, src_height, AV_PIX_FMT_RGBA,
+        width,     height,     AV_PIX_FMT_YUV420P,
         SWS_BILINEAR, nullptr, nullptr, nullptr
     );
     if (!sws_ctx) {
@@ -358,10 +363,31 @@ bool VideoEncoder::write_frame(Ref<Image> p_image) {
         return false;
     }
 
-    const uint8_t *src_data[1] = { data.ptr() };
-    int src_linesize[1] = { 4 * width };
+    int img_w = p_image->get_width();
+    int img_h = p_image->get_height();
 
-    sws_scale(sws_ctx, src_data, src_linesize, 0, height, video_frame->data, video_frame->linesize);
+    // Recreate the scaler if the incoming frame size differs from what we expect
+    if (!sws_ctx || img_w != src_width || img_h != src_height) {
+        if (sws_ctx) {
+            sws_freeContext(sws_ctx);
+        }
+        src_width = img_w;
+        src_height = img_h;
+        sws_ctx = sws_getContext(
+            src_width, src_height, AV_PIX_FMT_RGBA,
+            width,     height,     AV_PIX_FMT_YUV420P,
+            SWS_BILINEAR, nullptr, nullptr, nullptr
+        );
+        if (!sws_ctx) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not recreate scaler context");
+            return false;
+        }
+    }
+
+    const uint8_t *src_data[1] = { data.ptr() };
+    int src_linesize[1] = { 4 * src_width };
+
+    sws_scale(sws_ctx, src_data, src_linesize, 0, src_height, video_frame->data, video_frame->linesize);
 
     video_frame->pts = video_frame_count++;
 
