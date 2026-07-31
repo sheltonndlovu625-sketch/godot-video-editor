@@ -365,6 +365,13 @@ void TimelineClipNode::_ensure_thumbnails() {
         return;
     }
 
+    // Don't bother if we have no pixel area yet
+    float w = get_size().x;
+    float h = get_size().y;
+    if (w <= 0.0f || h <= 0.0f) {
+        return; // leave dirty=true so next draw retries
+    }
+
     thumbnail_textures.clear();
 
     double duration = clip->get_duration();
@@ -374,8 +381,8 @@ void TimelineClipNode::_ensure_thumbnails() {
         return;
     }
 
-    float w = get_size().x;
     int count = Math::max(1, (int)(w / thumb_size));
+    int success_count = 0;
 
     for (int i = 0; i < count; i++) {
         double t = source_in + (duration * i / Math::max(1, count - 1));
@@ -385,6 +392,7 @@ void TimelineClipNode::_ensure_thumbnails() {
             tex.instantiate();
             tex->set_image(img);
             thumbnail_textures.push_back(tex);
+            success_count++;
         } else {
             thumbnail_textures.push_back(Ref<ImageTexture>());
         }
@@ -393,14 +401,13 @@ void TimelineClipNode::_ensure_thumbnails() {
     if (thumb_decoder.is_valid()) {
         thumb_decoder->close();
     }
-    thumbnails_dirty = false;
+
+    // Only stop trying if we got at least one thumbnail
+    if (success_count > 0) {
+        thumbnails_dirty = false;
+    }
 }
 
-void TimelineClipNode::refresh_thumbnails() {
-    thumbnails_dirty = true;
-    _ensure_thumbnails();
-    queue_redraw();
-}
 
 void TimelineClipNode::_draw_split_handle(const Rect2 &p_rect) {
     float split_w = Math::min(28.0f, p_rect.size.x * 0.3f);
