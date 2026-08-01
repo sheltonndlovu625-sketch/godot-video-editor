@@ -665,7 +665,13 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
 
             Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
             if (decoder.is_null()) continue;
-            decoder->seek(source_time);
+
+            // Only seek if we jumped discontinuously; sequential reads are smooth
+            double decoder_time = decoder->get_current_time();
+            double diff = source_time - decoder_time;
+            if (diff < -0.05 || diff > 0.5) {
+                decoder->seek(source_time);
+            }
 
             Ref<Image> raw_frame = decoder->read_video_frame_scaled(p_width, p_height);
             if (raw_frame.is_null()) continue;
@@ -773,6 +779,8 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
         if (frame % 30 == 0) {
             UtilityFunctions::print("  Exported frame ", frame, "/", total_frames);
         }
+
+        last_render_time = time;
     }
 
     encoder->close();
