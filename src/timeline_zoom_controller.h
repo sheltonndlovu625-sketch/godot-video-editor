@@ -3,6 +3,7 @@
 #define TIMELINE_ZOOM_CONTROLLER_H
 
 #include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 
 namespace godot {
 
@@ -14,6 +15,10 @@ private:
     float min_zoom = 0.1f;
     float max_zoom = 10.0f;
     float pixels_per_second = 60.0f;
+
+    Dictionary touches;
+    float last_pinch_distance = -1.0f;
+    float last_pinch_zoom = 1.0f;
 
 protected:
     static void _bind_methods();
@@ -31,6 +36,8 @@ public:
     void zoom_in();
     void zoom_out();
     void apply_zoom_to_children();
+
+    void _input(const Ref<InputEvent> &p_event) override;
 
     TimelineZoomController();
 };
