@@ -4,6 +4,9 @@
 #include "timeline_ruler.h"
 #include "timeline_playhead.h"
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/classes/input_event_magnify_gesture.hpp>
+#include <godot_cpp/classes/input_event_screen_touch.hpp>
+#include <godot_cpp/classes/input_event_screen_drag.hpp>
 
 using namespace godot;
 
@@ -35,6 +38,7 @@ TimelineZoomController::TimelineZoomController() {}
 
 void TimelineZoomController::_notification(int p_what) {
     if (p_what == NOTIFICATION_READY) {
+        set_process_input(true);
         apply_zoom_to_children();
     }
 }
@@ -89,5 +93,55 @@ void TimelineZoomController::apply_zoom_to_children() {
             playhead->set_pixels_per_second(pixels_per_second);
             continue;
         }
+    }
+}
+
+void TimelineZoomController::_input(const Ref<InputEvent> &p_event) {
+    // 1. Native magnify gesture (pinch on mobile / trackpad on desktop)
+    Ref<InputEventMagnifyGesture> magnify = p_event;
+    if (magnify.is_valid()) {
+        set_zoom(zoom * magnify->get_factor());
+        return;
+    }
+
+    // 2. Manual two-finger pinch fallback
+    Ref<InputEventScreenTouch> touch = p_event;
+    if (touch.is_valid()) {
+        int idx = touch->get_index();
+        if (touch->is_pressed()) {
+            touches[idx] = touch->get_position();
+            if (touches.size() == 2) {
+                Array keys = touches.keys();
+                Vector2 p0 = touches[keys[0]];
+                Vector2 p1 = touches[keys[1]];
+                last_pinch_distance = p0.distance_to(p1);
+                last_pinch_zoom = zoom;
+            }
+        } else {
+            touches.erase(idx);
+            if (touches.size() < 2) {
+                last_pinch_distance = -1.0f;
+            }
+        }
+        return;
+    }
+
+    Ref<InputEventScreenDrag> drag = p_event;
+    if (drag.is_valid() && touches.size() == 2) {
+        int idx = drag->get_index();
+        if (touches.has(idx)) {
+            touches[idx] = drag->get_position();
+            Array keys = touches.keys();
+            if (keys.size() == 2) {
+                Vector2 p0 = touches[keys[0]];
+                Vector2 p1 = touches[keys[1]];
+                float dist = p0.distance_to(p1);
+                if (last_pinch_distance > 0.0f && dist > 0.0f) {
+                    float ratio = dist / last_pinch_distance;
+                    set_zoom(last_pinch_zoom * ratio);
+                }
+            }
+        }
+        return;
     }
 }
