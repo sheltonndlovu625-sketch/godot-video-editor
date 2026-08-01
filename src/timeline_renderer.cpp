@@ -66,6 +66,23 @@ Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
     return decoder;
 }
 
+Ref<VideoDecoder> TimelineRenderer::get_audio_decoder(const String &p_path) {
+    if (audio_decoders.has(p_path)) {
+        return audio_decoders[p_path];
+    }
+
+    UtilityFunctions::print("[TimelineRenderer] CREATING audio decoder for: ", p_path);
+    Ref<VideoDecoder> decoder;
+    decoder.instantiate();
+    if (!decoder->open(p_path)) {
+        UtilityFunctions::push_error("[TimelineRenderer] Failed to open audio decoder: ", p_path);
+        return Ref<VideoDecoder>();
+    }
+
+    audio_decoders[p_path] = decoder;
+    return decoder;
+}
+
 bool TimelineRenderer::_needs_seek(double p_time) {
     if (last_render_time < 0.0) {
         return true;
@@ -368,8 +385,7 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
     Vector<int> clip_blend_modes;
     Vector<float> clip_opacities;
     Vector<RID> temp_textures; // Track for cleanup
-    Vector<Vector2> clip_texture_sizes; // NEW: per-layer native texture size
-
+    Vector<Vector2> clip_texture_sizes;
 
     for (int i = 0; i < sorted_tracks.size(); i++) {
         Ref<TimelineTrack> track = sorted_tracks[i];
@@ -400,6 +416,7 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
         }
 
         clip_textures.push_back(current_tex);
+        clip_texture_sizes.push_back(Vector2(p_width, p_height));
 
         // Build Transform2D from clip properties
         float rot = clip->get_rotation();
@@ -419,8 +436,6 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
     }
 
     // ---- Collect text overlay layers (on top of video) ----
-       // ---- Collect text overlay layers (on top of video) ----
-        // ---- Collect text overlay layers (on top of video) ----
     TypedArray<TextOverlay> text_overlays = timeline->get_text_overlays_at_time(p_time);
     for (int i = 0; i < text_overlays.size(); i++) {
         Ref<TextOverlay> ov = text_overlays[i];
@@ -513,7 +528,17 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
         return result;
     }
 
-    bool seek = _needs_seek(p_time);
+    // Independent seek logic for audio (do not share last_render_time with video)
+    bool seek = false;
+    if (last_audio_time < 0.0) {
+        seek = true;
+    } else {
+        double frame_duration = 1.0 / timeline->get_frame_rate();
+        double delta = p_time - last_audio_time;
+        if (!(delta >= 0.0 && delta < frame_duration * 10.0)) {
+            seek = true;
+        }
+    }
 
     TypedArray<TimelineTrack> audio_tracks = timeline->get_audio_tracks();
     TypedArray<PackedFloat32Array> buffers;
@@ -527,7 +552,7 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
         double local_time = p_time - clip->get_timeline_start();
         double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
 
-        Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
+        Ref<VideoDecoder> decoder = get_audio_decoder(clip->get_source_path());
         if (decoder.is_null() || !decoder->has_audio()) continue;
 
         if (seek) {
@@ -547,6 +572,7 @@ PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_sampl
         }
     }
 
+    last_audio_time = p_time;
     return mix_audio(buffers);
 }
 
@@ -636,7 +662,7 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
 
     int total_frames = int(duration * p_fps) + 1;
     double frame_time = 1.0 / p_fps;
-    int audio_samples_per_frame = (p_sample_rate / p_fps) * 2;
+    int audio_samples_per_frame = p_sample_rate / p_fps;
 
     UtilityFunctions::print("[TimelineRenderer] Exporting ", total_frames, " frames...");
 
@@ -800,6 +826,15 @@ void TimelineRenderer::clear_cache() {
     }
     decoders.clear();
 
+    Array audio_keys = audio_decoders.keys();
+    for (int i = 0; i < audio_keys.size(); i++) {
+        Ref<VideoDecoder> decoder = audio_decoders[audio_keys[i]];
+        if (decoder.is_valid()) {
+            decoder->close();
+        }
+    }
+    audio_decoders.clear();
+
     if (preview_texture_rid.is_valid()) {
         RenderingServer::get_singleton()->free_rid(preview_texture_rid);
         preview_texture_rid = RID();
@@ -819,6 +854,7 @@ void TimelineRenderer::clear_cache() {
     black_frame.unref();
 
     last_render_time = -1.0;
+    last_audio_time = -1.0;
 }
 
 // ------------------------------------------------------------------
