@@ -41,6 +41,23 @@ void PreviewPlayer::_bind_methods() {
 
 PreviewPlayer::PreviewPlayer() {}
 
+void PreviewPlayer::_notification(int p_what) {
+    if (p_what == NOTIFICATION_READY) {
+        audio_player = memnew(AudioStreamPlayer);
+        add_child(audio_player, false, INTERNAL_MODE_FRONT);
+        audio_generator.instantiate();
+        audio_generator->set_mix_rate(audio_sample_rate);
+        audio_generator->set_buffer_length(0.1); // 100 ms ring buffer
+        audio_player->set_stream(audio_generator);
+    }
+    if (p_what == NOTIFICATION_EXIT_TREE) {
+        if (audio_player) {
+            audio_player->queue_free();
+            audio_player = nullptr;
+        }
+    }
+}
+
 void PreviewPlayer::_process(double delta) {
     if (state != STATE_PLAYING) return;
     if (renderer.is_null()) return;
@@ -62,17 +79,40 @@ void PreviewPlayer::_process(double delta) {
         }
     }
 
+    // ---- Video ----
     Ref<Image> frame = renderer->render_video_frame(current_time, preview_width, preview_height);
-    if (frame.is_null()) return;
-
-    if (preview_texture.is_null() || preview_texture->get_size() != Vector2(preview_width, preview_height)) {
-        preview_texture.instantiate();
-        preview_texture->set_image(frame);
-    } else {
-        preview_texture->update(frame);
+    if (frame.is_valid()) {
+        if (preview_texture.is_null() || preview_texture->get_size() != Vector2(preview_width, preview_height)) {
+            preview_texture.instantiate();
+            preview_texture->set_image(frame);
+        } else {
+            preview_texture->update(frame);
+        }
+        emit_signal("frame_ready", preview_texture);
     }
 
-    emit_signal("frame_ready", preview_texture);
+    // ---- Audio ----
+    if (!audio_playback.is_valid() && audio_player && audio_player->is_playing()) {
+        audio_playback = Object::cast_to<AudioStreamGeneratorPlayback>(audio_player->get_stream_playback());
+    }
+    if (audio_playback.is_valid() && renderer.is_valid()) {
+        int frames_available = audio_playback->get_frames_available();
+        if (frames_available > 0) {
+            int channels = 2;
+            PackedFloat32Array audio = renderer->render_audio(current_time, frames_available * channels, audio_sample_rate);
+            int total_samples = audio.size();
+            int frames_to_push = total_samples / channels;
+            if (frames_to_push > frames_available) {
+                frames_to_push = frames_available;
+            }
+            for (int i = 0; i < frames_to_push; i++) {
+                float left  = audio[i * channels];
+                float right = (channels > 1) ? audio[i * channels + 1] : left;
+                audio_playback->push_frame(Vector2(left, right));
+            }
+        }
+    }
+
     emit_signal("time_changed", current_time);
 }
 
@@ -96,24 +136,43 @@ bool PreviewPlayer::get_loop() const { return loop; }
 void PreviewPlayer::play() {
     if (state == STATE_PLAYING) return;
     state = STATE_PLAYING;
+    if (audio_player) {
+        audio_player->play();
+        audio_playback = Object::cast_to<AudioStreamGeneratorPlayback>(audio_player->get_stream_playback());
+    }
     emit_signal("playback_started");
 }
 void PreviewPlayer::pause() {
     if (state != STATE_PLAYING) return;
     state = STATE_PAUSED;
+    if (audio_player) {
+        audio_player->stop();
+    }
+    audio_playback = Ref<AudioStreamGeneratorPlayback>();
     emit_signal("playback_paused");
 }
 void PreviewPlayer::stop() {
     state = STATE_STOPPED;
     current_time = 0.0;
+    if (audio_player) {
+        audio_player->stop();
+    }
+    audio_playback = Ref<AudioStreamGeneratorPlayback>();
     emit_signal("playback_stopped");
 }
 void PreviewPlayer::seek(double p_time) {
     current_time = Math::max(0.0, p_time);
     if (renderer.is_valid()) {
-        Ref<Timeline> timeline = renderer->get_timeline();
-        if (timeline.is_valid()) {
-            current_time = Math::min(current_time, timeline->get_duration());
+        Ref<Timeline> tl = renderer->get_timeline();
+        if (tl.is_valid()) {
+            current_time = Math::min(current_time, tl->get_duration());
+        }
+    }
+    // Flush stale audio so we don't hear pre-seek samples
+    if (audio_playback.is_valid()) {
+        int avail = audio_playback->get_frames_available();
+        for (int i = 0; i < avail; i++) {
+            audio_playback->push_frame(Vector2(0.0f, 0.0f));
         }
     }
     emit_signal("time_changed", current_time);
