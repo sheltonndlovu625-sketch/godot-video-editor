@@ -93,7 +93,7 @@ void PreviewPlayer::_process(double delta) {
 
     // ---- Audio ----
     if (!audio_playback.is_valid() && audio_player && audio_player->is_playing()) {
-        audio_playback = Object::cast_to<AudioStreamGeneratorPlayback>(audio_player->get_stream_playback());
+        audio_playback = Object::cast_to<AudioStreamGeneratorPlayback>(audio_player->get_stream_playback().ptr());
     }
     if (audio_playback.is_valid() && renderer.is_valid()) {
         int frames_available = audio_playback->get_frames_available();
@@ -138,7 +138,7 @@ void PreviewPlayer::play() {
     state = STATE_PLAYING;
     if (audio_player) {
         audio_player->play();
-        audio_playback = Object::cast_to<AudioStreamGeneratorPlayback>(audio_player->get_stream_playback());
+        audio_playback = Object::cast_to<AudioStreamGeneratorPlayback>(audio_player->get_stream_playback().ptr());
     }
     emit_signal("playback_started");
 }
