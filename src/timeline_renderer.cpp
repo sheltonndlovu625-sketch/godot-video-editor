@@ -636,7 +636,7 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
 
     int total_frames = int(duration * p_fps) + 1;
     double frame_time = 1.0 / p_fps;
-    int audio_samples_per_frame = p_sample_rate / p_fps;
+    int audio_samples_per_frame = (p_sample_rate / p_fps) * 2;
 
     UtilityFunctions::print("[TimelineRenderer] Exporting ", total_frames, " frames...");
 
