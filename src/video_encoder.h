@@ -39,6 +39,8 @@ private:
 
     int width = 0;
     int height = 0;
+	int src_width = 0;
+	int src_height = 0;
     int fps = 30;
     int64_t video_frame_count = 0;
     int64_t audio_samples_count = 0;
