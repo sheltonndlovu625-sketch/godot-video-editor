@@ -1,910 +1,577 @@
-#include "timeline_renderer.h"
-#include <godot_cpp/classes/image.hpp>
-#include <godot_cpp/classes/image_texture.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
-#include <godot_cpp/core/math.hpp>
-#include <godot_cpp/variant/color.hpp>
-#include "audio_fx.h"
+#include "video_encoder.h"
+#include <godot_cpp/classes/project_settings.hpp>
 
 using namespace godot;
-TimelineRenderer::TimelineRenderer() {}
-TimelineRenderer::~TimelineRenderer() {}
 
-void TimelineRenderer::_bind_methods() {
-    ClassDB::bind_method(D_METHOD("set_timeline", "timeline"), &TimelineRenderer::set_timeline);
-    ClassDB::bind_method(D_METHOD("get_timeline"), &TimelineRenderer::get_timeline);
-    ClassDB::add_property("TimelineRenderer", PropertyInfo(Variant::OBJECT, "timeline"), "set_timeline", "get_timeline");
-
-    ClassDB::bind_method(D_METHOD("set_aspect_ratio_mode", "mode"), &TimelineRenderer::set_aspect_ratio_mode);
-    ClassDB::bind_method(D_METHOD("get_aspect_ratio_mode"), &TimelineRenderer::get_aspect_ratio_mode);
-    ClassDB::add_property("TimelineRenderer", PropertyInfo(Variant::INT, "aspect_ratio_mode"), "set_aspect_ratio_mode", "get_aspect_ratio_mode");
-
-    ClassDB::bind_method(D_METHOD("render_video_frame", "time", "width", "height"), &TimelineRenderer::render_video_frame);
-    ClassDB::bind_method(D_METHOD("render_video_frame_to_texture", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_texture);
-    ClassDB::bind_method(D_METHOD("render_video_frame_to_rid", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_rid);
-    ClassDB::bind_method(D_METHOD("render_audio", "time", "num_samples", "sample_rate"), &TimelineRenderer::render_audio);
-    ClassDB::bind_method(D_METHOD("export_to_file", "path", "width", "height", "fps", "video_bitrate", "sample_rate", "audio_bitrate"), &TimelineRenderer::export_to_file);
-    ClassDB::bind_method(D_METHOD("clear_cache"), &TimelineRenderer::clear_cache);
-
-    BIND_ENUM_CONSTANT(ASPECT_FILL);
-    BIND_ENUM_CONSTANT(ASPECT_FIT);
-    BIND_ENUM_CONSTANT(ASPECT_STRETCH);
+static String resolve_path(String p_path) {
+    if (p_path.begins_with("user://") || p_path.begins_with("res://")) {
+        ProjectSettings *ps = ProjectSettings::get_singleton();
+        if (ps) {
+            return ps->globalize_path(p_path);
+        }
+    }
+    return p_path;
 }
 
-
-void TimelineRenderer::set_timeline(const Ref<Timeline> &p_timeline) {
-    timeline = p_timeline;
-    clear_cache();
+static void log_av_error(const char *prefix, int errnum) {
+    char errbuf[256];
+    av_strerror(errnum, errbuf, sizeof(errbuf));
+    UtilityFunctions::push_error(String("[VideoEncoder] ") + prefix + ": " + errbuf);
 }
 
-Ref<Timeline> TimelineRenderer::get_timeline() const {
-    return timeline;
+void VideoEncoder::_bind_methods() {
+    ClassDB::bind_method(
+        D_METHOD("open", "path", "width", "height", "fps", "bitrate"),
+        &VideoEncoder::open
+    );
+    ClassDB::bind_method(
+        D_METHOD("open_with_audio", "path", "width", "height", "fps", "video_bitrate", "sample_rate", "channels", "audio_bitrate"),
+        &VideoEncoder::open_with_audio
+    );
+    ClassDB::bind_method(
+        D_METHOD("write_frame", "image"),
+        &VideoEncoder::write_frame
+    );
+    ClassDB::bind_method(
+        D_METHOD("write_audio", "samples"),
+        &VideoEncoder::write_audio
+    );
+    ClassDB::bind_method(
+        D_METHOD("close"),
+        &VideoEncoder::close
+    );
+    ClassDB::bind_method(
+        D_METHOD("is_open"),
+        &VideoEncoder::is_open
+    );
 }
 
-void TimelineRenderer::set_aspect_ratio_mode(int p_mode) {
-    aspect_ratio_mode = (AspectRatioMode)p_mode;
+VideoEncoder::VideoEncoder() {}
+
+VideoEncoder::~VideoEncoder() {
+    if (initialized) {
+        close();
+    }
 }
 
-int TimelineRenderer::get_aspect_ratio_mode() const {
-    return (int)aspect_ratio_mode;
+bool VideoEncoder::open(String p_path, int p_width, int p_height, int p_fps, int p_bitrate) {
+    return open_with_audio(p_path, p_width, p_height, p_fps, p_bitrate, 0, 0, 0);
 }
 
-Ref<VideoDecoder> TimelineRenderer::get_decoder(const String &p_path) {
-    if (decoders.has(p_path)) {
-        return decoders[p_path];
+bool VideoEncoder::open_with_audio(String p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_channels, int p_audio_bitrate) {
+    width = p_width;
+    height = p_height;
+    fps = p_fps;
+
+    // Remember the original source resolution before we align for the encoder
+    src_width = p_width;
+    src_height = p_height;
+
+    // Even dimensions are required for YUV420P; multiples of 16 are safer for hardware encoders
+    if (width % 2 != 0) width++;
+    if (height % 2 != 0) height++;
+
+    if (p_sample_rate > 0) {
+        has_audio = true;
+        sample_rate = p_sample_rate;
+        channels = p_channels;
+        audio_bitrate = p_audio_bitrate;
     }
 
-    UtilityFunctions::print("[TimelineRenderer] CREATING decoder for: ", p_path);
-    Ref<VideoDecoder> decoder;
-    decoder.instantiate();
-    if (!decoder->open(p_path)) {
-        UtilityFunctions::push_error("[TimelineRenderer] Failed to open: ", p_path);
-        return Ref<VideoDecoder>();
+    String resolved_path = resolve_path(p_path);
+    CharString path_utf8 = resolved_path.utf8();
+    const char *path_cstr = path_utf8.get_data();
+
+    avformat_alloc_output_context2(&format_ctx, nullptr, nullptr, path_cstr);
+    if (!format_ctx) {
+        avformat_alloc_output_context2(&format_ctx, nullptr, "mp4", path_cstr);
     }
-
-    decoders[p_path] = decoder;
-    return decoder;
-}
-
-bool TimelineRenderer::_needs_seek(double p_time) {
-    if (last_render_time < 0.0) {
-        return true;
-    }
-    double frame_duration = 1.0 / timeline->get_frame_rate();
-    double delta = p_time - last_render_time;
-
-    if (delta >= 0.0 && delta < frame_duration * 10.0) {
+    if (!format_ctx) {
+        log_av_error("avformat_alloc_output_context2 failed", AVERROR(EINVAL));
+        UtilityFunctions::push_error("[VideoEncoder] Could not allocate output context. Ensure linker uses --whole-archive for FFmpeg static libs.");
         return false;
     }
+
+    // ------------------------------------------------------------------
+    // Video encoder selection with hardware-aware fallback chain
+    // ------------------------------------------------------------------
+    const AVCodec *video_codec = nullptr;
+    bool prefer_hw = false;
+
+#if defined(__ANDROID__)
+    video_codec = avcodec_find_encoder_by_name("h264_mediacodec");
+    if (video_codec) {
+        UtilityFunctions::print("[VideoEncoder] Probing Android MediaCodec H.264 hardware encoder");
+        prefer_hw = true;
+    }
+#elif defined(__APPLE__)
+    video_codec = avcodec_find_encoder_by_name("h264_videotoolbox");
+    if (video_codec) {
+        UtilityFunctions::print("[VideoEncoder] Probing Apple VideoToolbox H.264 hardware encoder");
+        prefer_hw = true;
+    }
+#endif
+
+    // If hardware probe failed, or if we want to prepare a fallback, also locate software H.264
+    const AVCodec *sw_h264_codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+    const AVCodec *mpeg4_codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+
+    // Helper lambda to attempt opening a given video encoder
+    auto try_open_video = [&](const AVCodec *codec, bool is_hw) -> bool {
+        if (!codec) return false;
+
+        if (video_codec_ctx) {
+            avcodec_free_context(&video_codec_ctx);
+        }
+
+        video_codec_ctx = avcodec_alloc_context3(codec);
+        if (!video_codec_ctx) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate video codec context for: ", String(codec->name));
+            return false;
+        }
+
+        int enc_width = width;
+        int enc_height = height;
+
+        // Hardware encoders are much stricter about buffer alignment
+        if (is_hw) {
+            enc_width = (enc_width + 15) & ~15;
+            enc_height = (enc_height + 15) & ~15;
+            UtilityFunctions::print("[VideoEncoder] Hardware mode: aligned resolution to ", enc_width, "x", enc_height);
+        }
+
+        video_codec_ctx->width = enc_width;
+        video_codec_ctx->height = enc_height;
+        video_codec_ctx->time_base = (AVRational){1, fps};
+        video_codec_ctx->framerate = (AVRational){fps, 1};
+        video_codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+        video_codec_ctx->bit_rate = p_video_bitrate;
+        video_codec_ctx->gop_size = fps * 2;
+
+        // Hardware encoders rarely support B-frames; MPEG4 also dislikes them
+        if (is_hw || codec->id == AV_CODEC_ID_MPEG4) {
+            video_codec_ctx->max_b_frames = 0;
+        } else {
+            video_codec_ctx->max_b_frames = 2;
+        }
+
+        if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
+            video_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        }
+
+        // Only set libx264 options when we actually have libx264
+        if (codec->id == AV_CODEC_ID_H264 && String(codec->name) == String("libx264")) {
+            av_opt_set(video_codec_ctx->priv_data, "preset", "fast", 0);
+            av_opt_set(video_codec_ctx->priv_data, "tune", "zerolatency", 0);
+            av_opt_set(video_codec_ctx->priv_data, "profile", "main", 0);
+        }
+
+        int ret = avcodec_open2(video_codec_ctx, codec, nullptr);
+        if (ret < 0) {
+            String fail_msg = String("[VideoEncoder] avcodec_open2 failed for ") + String(codec->name);
+            CharString fail_utf8 = fail_msg.utf8();
+            log_av_error(fail_utf8.get_data(), ret);
+            avcodec_free_context(&video_codec_ctx);
+            return false;
+        }
+
+        // Store aligned dimensions back so the scaler/output matches
+        width = enc_width;
+        height = enc_height;
+
+        UtilityFunctions::print("[VideoEncoder] Opened video encoder: ", String(codec->name));
+        return true;
+    };
+
+    // Try hardware first, then software H.264, then MPEG-4
+    bool opened = false;
+    if (prefer_hw && video_codec) {
+        opened = try_open_video(video_codec, true);
+        if (!opened) {
+            UtilityFunctions::print("[VideoEncoder] Hardware encoder failed, falling back to software H.264");
+        }
+    }
+
+    if (!opened && sw_h264_codec) {
+        opened = try_open_video(sw_h264_codec, false);
+    }
+
+    if (!opened && mpeg4_codec) {
+        UtilityFunctions::print("[VideoEncoder] H.264 not available, using MPEG4 fallback");
+        opened = try_open_video(mpeg4_codec, false);
+    }
+
+    if (!opened) {
+        UtilityFunctions::push_error("[VideoEncoder] No suitable video encoder could be opened");
+        return false;
+    }
+
+    video_stream = avformat_new_stream(format_ctx, nullptr);
+    if (!video_stream) {
+        UtilityFunctions::push_error("[VideoEncoder] Could not create video stream");
+        return false;
+    }
+    video_stream->id = format_ctx->nb_streams - 1;
+
+    int ret = avcodec_parameters_from_context(video_stream->codecpar, video_codec_ctx);
+    if (ret < 0) {
+        log_av_error("Could not copy video codec params", ret);
+        return false;
+    }
+    video_stream->time_base = video_codec_ctx->time_base;
+
+    if (has_audio) {
+        const AVCodec *audio_codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+        if (!audio_codec) {
+            UtilityFunctions::push_error("[VideoEncoder] AAC encoder not found");
+            return false;
+        }
+
+        audio_stream = avformat_new_stream(format_ctx, nullptr);
+        if (!audio_stream) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not create audio stream");
+            return false;
+        }
+        audio_stream->id = format_ctx->nb_streams - 1;
+
+        audio_codec_ctx = avcodec_alloc_context3(audio_codec);
+        if (!audio_codec_ctx) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate audio codec context");
+            return false;
+        }
+
+        audio_codec_ctx->sample_rate = sample_rate;
+        audio_codec_ctx->bit_rate = audio_bitrate;
+        av_channel_layout_default(&audio_codec_ctx->ch_layout, channels);
+        audio_codec_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
+        audio_codec_ctx->time_base = (AVRational){1, sample_rate};
+
+        if (format_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
+            audio_codec_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+        }
+
+        ret = avcodec_open2(audio_codec_ctx, audio_codec, nullptr);
+        if (ret < 0) {
+            log_av_error("Could not open audio codec", ret);
+            return false;
+        }
+
+        ret = avcodec_parameters_from_context(audio_stream->codecpar, audio_codec_ctx);
+        if (ret < 0) {
+            log_av_error("Could not copy audio codec params", ret);
+            return false;
+        }
+        audio_stream->time_base = audio_codec_ctx->time_base;
+    }
+
+    ret = avio_open(&format_ctx->pb, path_cstr, AVIO_FLAG_WRITE);
+    if (ret < 0) {
+        log_av_error("Could not open output file", ret);
+        return false;
+    }
+
+    ret = avformat_write_header(format_ctx, nullptr);
+    if (ret < 0) {
+        log_av_error("Error writing header", ret);
+        return false;
+    }
+
+    video_frame = av_frame_alloc();
+    video_frame->format = AV_PIX_FMT_YUV420P;
+    video_frame->width = width;
+    video_frame->height = height;
+    ret = av_frame_get_buffer(video_frame, 0);
+    if (ret < 0) {
+        log_av_error("Could not allocate video frame buffer", ret);
+        return false;
+    }
+
+    packet = av_packet_alloc();
+
+    // Source = original resolution, Dest = aligned encoder resolution
+    sws_ctx = sws_getContext(
+        src_width, src_height, AV_PIX_FMT_RGBA,
+        width,     height,     AV_PIX_FMT_YUV420P,
+        SWS_BILINEAR, nullptr, nullptr, nullptr
+    );
+    if (!sws_ctx) {
+        UtilityFunctions::push_error("[VideoEncoder] Could not create scaler context");
+        return false;
+    }
+
+    if (has_audio) {
+        audio_frame = av_frame_alloc();
+        audio_frame->format = AV_SAMPLE_FMT_FLTP;
+        audio_frame->ch_layout = audio_codec_ctx->ch_layout;
+        audio_frame->sample_rate = audio_codec_ctx->sample_rate;
+        audio_frame->nb_samples = audio_codec_ctx->frame_size;
+        if (audio_frame->nb_samples == 0) {
+            audio_frame->nb_samples = 1024;
+        }
+        ret = av_frame_get_buffer(audio_frame, 0);
+        if (ret < 0) {
+            log_av_error("Could not allocate audio frame buffer", ret);
+            return false;
+        }
+
+        swr_ctx = swr_alloc();
+        if (!swr_ctx) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate resampler");
+            return false;
+        }
+
+        AVChannelLayout src_ch_layout;
+        av_channel_layout_default(&src_ch_layout, channels);
+
+        ret = swr_alloc_set_opts2(&swr_ctx,
+            &audio_codec_ctx->ch_layout, AV_SAMPLE_FMT_FLTP, sample_rate,
+            &src_ch_layout, AV_SAMPLE_FMT_FLT, sample_rate,
+            0, nullptr);
+
+        if (ret < 0) {
+            log_av_error("Could not set resampler options", ret);
+            return false;
+        }
+
+        ret = swr_init(swr_ctx);
+        if (ret < 0) {
+            log_av_error("Could not initialize resampler", ret);
+            return false;
+        }
+
+        audio_fifo = av_audio_fifo_alloc(AV_SAMPLE_FMT_FLTP, channels, audio_frame->nb_samples);
+        if (!audio_fifo) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not allocate audio FIFO");
+            return false;
+        }
+    }
+
+    initialized = true;
+    video_frame_count = 0;
+    audio_samples_count = 0;
+    UtilityFunctions::print("[VideoEncoder] Opened: ", resolved_path, " (codec: ", String(video_codec_ctx->codec->name), ", ", width, "x", height, ")");
     return true;
 }
 
-// ------------------------------------------------------------------
-// CPU path
-// ------------------------------------------------------------------
-
-Ref<Image> TimelineRenderer::render_video_frame(double p_time, int p_width, int p_height) {
-    if (timeline.is_null()) {
-        return Ref<Image>();
+bool VideoEncoder::write_frame(Ref<Image> p_image) {
+    if (!initialized || p_image.is_null()) {
+        return false;
     }
 
-    bool seek = _needs_seek(p_time);
-
-    // ---- Composite video clips ----
-    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
-    Vector<Ref<TimelineTrack>> sorted_tracks;
-    for (int i = 0; i < video_tracks.size(); i++) {
-        sorted_tracks.push_back(video_tracks[i]);
+    PackedByteArray data = p_image->get_data();
+    if (data.size() == 0) {
+        return false;
     }
-    struct TrackComparator {
-        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-            return a->get_layer_index() < b->get_layer_index();
+
+    int img_w = p_image->get_width();
+    int img_h = p_image->get_height();
+
+    // Recreate the scaler if the incoming frame size differs from what we expect
+    if (!sws_ctx || img_w != src_width || img_h != src_height) {
+        if (sws_ctx) {
+            sws_freeContext(sws_ctx);
         }
-    };
-    sorted_tracks.sort_custom<TrackComparator>();
-
-    Vector<Ref<Image>> frames;
-    for (int i = 0; i < sorted_tracks.size(); i++) {
-        Ref<TimelineTrack> track = sorted_tracks[i];
-        Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
-        if (clip.is_null()) continue;
-
-        double local_time = p_time - clip->get_timeline_start();
-        double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
-
-        Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
-        if (decoder.is_null()) continue;
-
-        if (seek) {
-            decoder->seek(source_time);
+        src_width = img_w;
+        src_height = img_h;
+        sws_ctx = sws_getContext(
+            src_width, src_height, AV_PIX_FMT_RGBA,
+            width,     height,     AV_PIX_FMT_YUV420P,
+            SWS_BILINEAR, nullptr, nullptr, nullptr
+        );
+        if (!sws_ctx) {
+            UtilityFunctions::push_error("[VideoEncoder] Could not recreate scaler context");
+            return false;
         }
-
-        Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
-        if (frame.is_null()) continue;
-
-        frames.push_back(frame);
     }
 
-    last_render_time = p_time;
+    const uint8_t *src_data[1] = { data.ptr() };
+    int src_linesize[1] = { 4 * src_width };
 
-    // Check for text overlays so we know whether we can use the fast path
-    TypedArray<TextOverlay> overlays = timeline->get_text_overlays_at_time(p_time);
-    bool has_overlays = overlays.size() > 0;
+    sws_scale(sws_ctx, src_data, src_linesize, 0, src_height, video_frame->data, video_frame->linesize);
 
-    Ref<Image> img;
-    if (frames.is_empty()) {
-        img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-        img->fill(Color(0, 0, 0, 1));
-    } else if (frames.size() == 1 && !has_overlays) {
-        // Fast path: no overlays, return decoder frame directly
-        return frames[0];
-    } else if (frames.size() == 1) {
-        // Duplicate so we don't corrupt the decoder's double-buffer
-        img = frames[0]->duplicate();
-    } else {
-        img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-        img->fill(Color(0, 0, 0, 1));
-        for (int i = 0; i < frames.size(); i++) {
-            if (frames[i].is_valid()) {
-                img->blit_rect(frames[i], Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
+    video_frame->pts = video_frame_count++;
+
+    int ret = avcodec_send_frame(video_codec_ctx, video_frame);
+    if (ret < 0) {
+        log_av_error("Error sending video frame", ret);
+        return false;
+    }
+
+    while (ret >= 0) {
+        ret = avcodec_receive_packet(video_codec_ctx, packet);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            break;
+        }
+        if (ret < 0) {
+            log_av_error("Error encoding video frame", ret);
+            return false;
+        }
+
+        av_packet_rescale_ts(packet, video_codec_ctx->time_base, video_stream->time_base);
+        packet->stream_index = video_stream->index;
+
+        ret = av_interleaved_write_frame(format_ctx, packet);
+        av_packet_unref(packet);
+        if (ret < 0) {
+            log_av_error("Error writing video packet", ret);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool VideoEncoder::write_audio(PackedFloat32Array p_samples) {
+    if (!initialized || !has_audio || p_samples.size() == 0) {
+        return false;
+    }
+
+    int num_samples = p_samples.size() / channels;
+    const uint8_t *src_data = (const uint8_t *)p_samples.ptr();
+
+    int max_out_samples = swr_get_out_samples(swr_ctx, num_samples);
+    if (max_out_samples <= 0) {
+        return false;
+    }
+
+    uint8_t **dst_data = nullptr;
+    int dst_linesize;
+    av_samples_alloc_array_and_samples(&dst_data, &dst_linesize, channels,
+        max_out_samples, AV_SAMPLE_FMT_FLTP, 0);
+
+    int converted = swr_convert(swr_ctx, dst_data, max_out_samples,
+        &src_data, num_samples);
+
+    if (converted < 0) {
+        av_freep(&dst_data[0]);
+        av_freep(&dst_data);
+        log_av_error("Audio resampling failed", converted);
+        return false;
+    }
+
+    av_audio_fifo_write(audio_fifo, (void **)dst_data, converted);
+
+    av_freep(&dst_data[0]);
+    av_freep(&dst_data);
+
+    while (av_audio_fifo_size(audio_fifo) >= audio_codec_ctx->frame_size) {
+        av_audio_fifo_read(audio_fifo, (void **)audio_frame->data, audio_codec_ctx->frame_size);
+
+        audio_frame->pts = audio_samples_count;
+        audio_samples_count += audio_codec_ctx->frame_size;
+
+        int ret = avcodec_send_frame(audio_codec_ctx, audio_frame);
+        if (ret < 0) {
+            log_av_error("Error sending audio frame", ret);
+            return false;
+        }
+
+        while (ret >= 0) {
+            ret = avcodec_receive_packet(audio_codec_ctx, packet);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            }
+            if (ret < 0) {
+                log_av_error("Error encoding audio", ret);
+                return false;
+            }
+
+            av_packet_rescale_ts(packet, audio_codec_ctx->time_base, audio_stream->time_base);
+            packet->stream_index = audio_stream->index;
+
+            ret = av_interleaved_write_frame(format_ctx, packet);
+            av_packet_unref(packet);
+            if (ret < 0) {
+                log_av_error("Error writing audio packet", ret);
+                return false;
             }
         }
     }
 
-    // ---- Composite text overlays on top (same logic as export) ----
-    for (int i = 0; i < overlays.size(); i++) {
-        Ref<TextOverlay> ov = overlays[i];
-        if (ov.is_null()) continue;
-
-        Ref<Image> text_img = ov->render_to_image();
-        if (text_img.is_null()) continue;
-
-        Vector2 pos = ov->get_position();
-        Vector2 anchor = ov->get_anchor_point();
-        int tw = text_img->get_width();
-        int th = text_img->get_height();
-
-        Vector2 blit_pos = pos - Vector2(anchor.x * tw, anchor.y * th);
-        int bx = int(blit_pos.x);
-        int by = int(blit_pos.y);
-
-        for (int y = 0; y < th; y++) {
-            int py = by + y;
-            if (py < 0 || py >= p_height) continue;
-            for (int x = 0; x < tw; x++) {
-                int px = bx + x;
-                if (px < 0 || px >= p_width) continue;
-                Color src = text_img->get_pixel(x, y);
-                if (src.a <= 0.001f) continue;
-                Color dst = img->get_pixel(px, py);
-                float out_a = src.a + dst.a * (1.0f - src.a);
-                if (out_a > 0.001f) {
-                    Color out;
-                    out.r = (src.r * src.a + dst.r * dst.a * (1.0f - src.a)) / out_a;
-                    out.g = (src.g * src.a + dst.g * dst.a * (1.0f - src.a)) / out_a;
-                    out.b = (src.b * src.a + dst.b * dst.a * (1.0f - src.a)) / out_a;
-                    out.a = out_a;
-                    img->set_pixel(px, py, out);
-                }
-            }
-        }
-    }
-
-    return img;
+    return true;
 }
 
-
-Ref<ImageTexture> TimelineRenderer::render_video_frame_to_texture(double p_time, int p_width, int p_height) {
-    Ref<Image> img = render_video_frame(p_time, p_width, p_height);
-    if (img.is_null()) {
-        return Ref<ImageTexture>();
-    }
-
-    if (preview_texture.is_null() || preview_tex_w != p_width || preview_tex_h != p_height) {
-        preview_texture.instantiate();
-        preview_texture->set_image(img);
-        preview_tex_w = p_width;
-        preview_tex_h = p_height;
-    } else {
-        preview_texture->update(img);
-    }
-    return preview_texture;
-}
-
-// ------------------------------------------------------------------
-// GPU Compositor Infrastructure
-// ------------------------------------------------------------------
-
-void TimelineRenderer::_ensure_gpu_compositor(RenderingServer *p_rs, int p_width, int p_height) {
-    if (comp_viewport.is_valid() && comp_w == p_width && comp_h == p_height) {
+void VideoEncoder::close() {
+    if (!initialized) {
         return;
     }
 
-    _free_gpu_compositor();
-
-    comp_viewport = p_rs->viewport_create();
-    p_rs->viewport_set_size(comp_viewport, p_width, p_height);
-    p_rs->viewport_set_transparent_background(comp_viewport, false);
-    p_rs->viewport_set_active(comp_viewport, true);
-
-    comp_canvas = p_rs->canvas_create();
-    p_rs->viewport_attach_canvas(comp_viewport, comp_canvas);
-
-    comp_w = p_width;
-    comp_h = p_height;
-}
-
-void TimelineRenderer::_free_gpu_compositor() {
-    RenderingServer *p_rs = RenderingServer::get_singleton();
-    if (!p_rs) return;
-
-    _free_layer_items();
-
-    if (comp_canvas.is_valid()) { p_rs->free_rid(comp_canvas); comp_canvas = RID(); }
-    if (comp_viewport.is_valid()) { p_rs->free_rid(comp_viewport); comp_viewport = RID(); }
-    comp_w = 0; comp_h = 0;
-}
-
-void TimelineRenderer::_ensure_layer_items(RenderingServer *p_rs, int p_count) {
-    while (layer_items.size() > p_count) {
-        p_rs->free_rid(layer_items[layer_items.size() - 1]);
-        layer_items.remove_at(layer_items.size() - 1);
-    }
-    while (layer_items.size() < p_count) {
-        RID item = p_rs->canvas_item_create();
-        p_rs->canvas_item_set_parent(item, comp_canvas);
-        layer_items.push_back(item);
-    }
-}
-
-void TimelineRenderer::_free_layer_items() {
-    RenderingServer *p_rs = RenderingServer::get_singleton();
-    if (!p_rs) return;
-    for (int i = 0; i < layer_items.size(); i++) {
-        if (layer_items[i].is_valid()) {
-            p_rs->free_rid(layer_items[i]);
-        }
-    }
-    layer_items.clear();
-}
-
-void TimelineRenderer::_ensure_blend_materials() {
-    if (mat_normal.is_valid()) return;
-
-    mat_normal.instantiate();
-    mat_normal->set_blend_mode(CanvasItemMaterial::BLEND_MODE_MIX);
-
-    mat_add.instantiate();
-    mat_add->set_blend_mode(CanvasItemMaterial::BLEND_MODE_ADD);
-
-    mat_multiply.instantiate();
-    mat_multiply->set_blend_mode(CanvasItemMaterial::BLEND_MODE_MUL);
-
-    mat_subtract.instantiate();
-    mat_subtract->set_blend_mode(CanvasItemMaterial::BLEND_MODE_SUB);
-}
-
-RID TimelineRenderer::_get_blend_material(int p_blend_mode) const {
-    switch (p_blend_mode) {
-        case TimelineTrack::BLEND_MODE_ADD:
-            return mat_add.is_valid() ? mat_add->get_rid() : RID();
-        case TimelineTrack::BLEND_MODE_MULTIPLY:
-            return mat_multiply.is_valid() ? mat_multiply->get_rid() : RID();
-        case TimelineTrack::BLEND_MODE_SUBTRACT:
-            return mat_subtract.is_valid() ? mat_subtract->get_rid() : RID();
-        case TimelineTrack::BLEND_MODE_NORMAL:
-        default:
-            return mat_normal.is_valid() ? mat_normal->get_rid() : RID();
-    }
-}
-
-RID TimelineRenderer::_composite_gpu_with_transforms(RenderingServer *p_rs,
-    const Vector<RID> &p_textures,
-    const Vector<Transform2D> &p_transforms,
-    const Vector<int> &p_blend_modes,
-    const Vector<float> &p_opacities,
-    const Vector<Vector2> &p_texture_sizes,
-    int p_width, int p_height) {
-
-    _ensure_gpu_compositor(p_rs, p_width, p_height);
-    _ensure_layer_items(p_rs, p_textures.size());
-    _ensure_blend_materials();
-
-    for (int i = 0; i < layer_items.size(); i++) {
-        p_rs->canvas_item_clear(layer_items[i]);
-    }
-
-    for (int i = 0; i < p_textures.size(); i++) {
-        RID item = layer_items[i];
-
-        p_rs->canvas_item_set_transform(item, p_transforms[i]);
-        p_rs->canvas_item_set_material(item, _get_blend_material(p_blend_modes[i]));
-
-        Color modulate = Color(1.0f, 1.0f, 1.0f, p_opacities[i]);
-        p_rs->canvas_item_set_self_modulate(item, modulate);
-
-        // Use native texture size if provided, otherwise full canvas
-        Vector2 size = (i < p_texture_sizes.size() && p_texture_sizes[i].x > 0.0f && p_texture_sizes[i].y > 0.0f)
-            ? p_texture_sizes[i]
-            : Vector2(p_width, p_height);
-
-        p_rs->canvas_item_add_texture_rect(
-            item,
-            Rect2(Vector2(), size),
-            p_textures[i]
-        );
-    }
-
-    p_rs->viewport_set_update_mode(comp_viewport, RenderingServer::VIEWPORT_UPDATE_ONCE);
-    return p_rs->viewport_get_texture(comp_viewport);
-}
-
-
-// ------------------------------------------------------------------
-// GPU + Effects + Transforms + Blend Modes + Text Overlays Preview Path
-// ------------------------------------------------------------------
-
-RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int p_height) {
-    if (timeline.is_null()) return RID();
-
-    RenderingServer *rs = RenderingServer::get_singleton();
-
-    // Get sorted video tracks
-    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
-    Vector<Ref<TimelineTrack>> sorted_tracks;
-    for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
-    struct TrackComparator {
-        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-            return a->get_layer_index() < b->get_layer_index();
-        }
-    };
-    sorted_tracks.sort_custom<TrackComparator>();
-
-    bool seek = _needs_seek(p_time);
-
-    // ---- Collect video clip layers ----
-    Vector<RID> clip_textures;
-    Vector<Transform2D> clip_transforms;
-    Vector<int> clip_blend_modes;
-    Vector<float> clip_opacities;
-    Vector<RID> temp_textures; // Track for cleanup
-    Vector<Vector2> clip_texture_sizes; // NEW: per-layer native texture size
-
-
-    for (int i = 0; i < sorted_tracks.size(); i++) {
-        Ref<TimelineTrack> track = sorted_tracks[i];
-        Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
-        if (clip.is_null()) continue;
-
-        double local_time = p_time - clip->get_timeline_start();
-        double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
-
-        Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
-        if (decoder.is_null()) continue;
-        if (seek) decoder->seek(source_time);
-
-        Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
-        if (frame.is_null()) continue;
-
-        RID frame_tex = rs->texture_2d_create(frame);
-        temp_textures.push_back(frame_tex);
-        RID current_tex = frame_tex;
-
-        // Apply clip effects (GPU path)
-        TypedArray<VideoEffect> fx = clip->get_effects();
-        for (int e = 0; e < fx.size(); e++) {
-            Ref<VideoEffect> effect = fx[e];
-            if (effect.is_null()) continue;
-            RID next_tex = effect->apply_to_texture(rs, current_tex, p_width, p_height);
-            current_tex = next_tex;
-        }
-
-        clip_textures.push_back(current_tex);
-
-        // Build Transform2D from clip properties
-        float rot = clip->get_rotation();
-        Vector2 scl = clip->get_scale();
-        Vector2 pos = clip->get_position();
-        Vector2 anchor = clip->get_anchor_point();
-
-        Transform2D t;
-        t[0] = Vector2(Math::cos(rot), Math::sin(rot)) * scl.x;
-        t[1] = Vector2(-Math::sin(rot), Math::cos(rot)) * scl.y;
-        Vector2 anchor_offset = Vector2(anchor.x * p_width, anchor.y * p_height);
-        t[2] = pos - (t[0] * anchor_offset.x + t[1] * anchor_offset.y);
-
-        clip_transforms.push_back(t);
-        clip_blend_modes.push_back(track->get_blend_mode());
-        clip_opacities.push_back(clip->get_opacity());
-    }
-
-    // ---- Collect text overlay layers (on top of video) ----
-       // ---- Collect text overlay layers (on top of video) ----
-        // ---- Collect text overlay layers (on top of video) ----
-    TypedArray<TextOverlay> text_overlays = timeline->get_text_overlays_at_time(p_time);
-    for (int i = 0; i < text_overlays.size(); i++) {
-        Ref<TextOverlay> ov = text_overlays[i];
-        if (ov.is_null()) continue;
-
-        RID text_tex = ov->render_to_rid(rs, p_width, p_height, p_time);
-        if (!text_tex.is_valid()) continue;
-
-        clip_textures.push_back(text_tex);
-
-        Vector2 text_size = ov->get_render_size();
-        clip_texture_sizes.push_back(text_size);
-
-        Vector2 pos = ov->get_position();
-        Vector2 anchor = ov->get_anchor_point();
-        float opacity = ov->get_opacity();
-
-        // FIX: Apply anchor offset so position is center-based, not top-left
-        Vector2 anchor_offset = Vector2(anchor.x * text_size.x, anchor.y * text_size.y);
-
-        Transform2D t;
-        t[0] = Vector2(1, 0);
-        t[1] = Vector2(0, 1);
-        t[2] = pos - anchor_offset;
-
-        clip_transforms.push_back(t);
-        clip_blend_modes.push_back(TimelineTrack::BLEND_MODE_NORMAL);
-        clip_opacities.push_back(opacity);
-    }
-
-    last_render_time = p_time;
-
-    if (clip_textures.is_empty()) {
-        if (black_frame.is_null() || black_frame->get_width() != p_width || black_frame->get_height() != p_height) {
-            black_frame = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-            black_frame->fill(Color(0, 0, 0, 1));
-        }
-        RID black_tex = rs->texture_2d_create(black_frame);
-        temp_textures.push_back(black_tex);
-        clip_textures.push_back(black_tex);
-        clip_texture_sizes.push_back(Vector2(p_width, p_height));
-        clip_transforms.push_back(Transform2D());
-        clip_blend_modes.push_back(TimelineTrack::BLEND_MODE_NORMAL);
-        clip_opacities.push_back(1.0f);
-    }
-
-    RID final_tex = _composite_gpu_with_transforms(rs,
-        clip_textures, clip_transforms, clip_blend_modes, clip_opacities, clip_texture_sizes,
-        p_width, p_height);
-
-    // Free temp textures we created (frame uploads)
-    for (int i = 0; i < temp_textures.size(); i++) {
-        rs->free_rid(temp_textures[i]);
-    }
-
-    return final_tex;
-
-}
-
-Ref<Image> TimelineRenderer::composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height) {
-    if (p_frames.is_empty()) {
-        return Ref<Image>();
-    }
-
-    Ref<Image> result = p_frames[0]->duplicate();
-    if (p_frames.size() == 1) {
-        return result;
-    }
-
-    for (int i = 1; i < p_frames.size(); i++) {
-        Ref<Image> top = p_frames[i];
-        if (top.is_null()) continue;
-        result->blit_rect(top, Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
-    }
-
-    return result;
-}
-
-Ref<Image> TimelineRenderer::composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height) {
-    Vector<Ref<Image>> vec;
-    for (int i = 0; i < p_frames.size(); i++) {
-        vec.push_back(p_frames[i]);
-    }
-    return composite_frames_fast(vec, p_width, p_height);
-}
-
-PackedFloat32Array TimelineRenderer::render_audio(double p_time, int p_num_samples, int p_sample_rate) {
-    PackedFloat32Array result;
-    if (timeline.is_null() || p_num_samples <= 0) {
-        return result;
-    }
-
-    bool seek = _needs_seek(p_time);
-
-    TypedArray<TimelineTrack> audio_tracks = timeline->get_audio_tracks();
-    TypedArray<PackedFloat32Array> buffers;
-
-    for (int i = 0; i < audio_tracks.size(); i++) {
-        Ref<TimelineTrack> track = audio_tracks[i];
-        if (track.is_null()) continue;
-        Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
-        if (clip.is_null()) continue;
-
-        double local_time = p_time - clip->get_timeline_start();
-        double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
-
-        Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
-        if (decoder.is_null() || !decoder->has_audio()) continue;
-
-        if (seek) {
-            if (!decoder->seek(source_time)) {
-                continue;
-            }
-        }
-
-        PackedFloat32Array samples = decoder->read_audio_samples(p_num_samples);
-        if (samples.size() > 0) {
-            // ---- Apply per-clip AudioFX ----
-            Ref<AudioFX> fx = clip->get_audio_fx();
-            if (fx.is_valid()) {
-                samples = fx->process_audio(samples, decoder->get_audio_sample_rate(), decoder->get_audio_channels());
-            }
-            buffers.push_back(samples);
-        }
-    }
-
-    return mix_audio(buffers);
-}
-
-PackedFloat32Array TimelineRenderer::mix_audio(const TypedArray<PackedFloat32Array> &p_buffers) {
-    PackedFloat32Array result;
-
-    if (p_buffers.is_empty()) {
-        return result;
-    }
-
-    int max_size = 0;
-    for (int i = 0; i < p_buffers.size(); i++) {
-        PackedFloat32Array buf = p_buffers[i];
-        if (buf.size() > max_size) {
-            max_size = buf.size();
-        }
-    }
-
-    if (max_size == 0) {
-        return result;
-    }
-
-    result.resize(max_size);
-
-    for (int i = 0; i < p_buffers.size(); i++) {
-        PackedFloat32Array buf = p_buffers[i];
-        for (int j = 0; j < buf.size(); j++) {
-            result[j] += buf[j];
-        }
-    }
-
-    for (int i = 0; i < max_size; i++) {
-        if (result[i] > 1.0f) result[i] = 1.0f;
-        if (result[i] < -1.0f) result[i] = -1.0f;
-    }
-
-    return result;
-}
-
-// ------------------------------------------------------------------
-// CPU Effects helper for export
-// ------------------------------------------------------------------
-
-Ref<Image> TimelineRenderer::_apply_cpu_effects(const Ref<Image> &p_frame, const TypedArray<VideoEffect> &p_effects, int p_width, int p_height) {
-    Ref<Image> result = p_frame;
-    for (int i = 0; i < p_effects.size(); i++) {
-        Ref<VideoEffect> effect = p_effects[i];
-        if (effect.is_null()) continue;
-        result = effect->apply_to_image(result, p_width, p_height);
-        if (result.is_null()) break;
-    }
-    return result;
-}
-
-// ------------------------------------------------------------------
-// Export with CPU effects + text overlay support
-// ------------------------------------------------------------------
-
-bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate) {
-    if (timeline.is_null()) {
-        UtilityFunctions::push_error("[TimelineRenderer] No timeline set");
-        return false;
-    }
-
-    double duration = timeline->get_duration();
-    if (duration <= 0.0) {
-        UtilityFunctions::push_error("[TimelineRenderer] Timeline has no content");
-        return false;
-    }
-
-    Ref<VideoEncoder> encoder;
-    encoder.instantiate();
-
-    bool has_audio = timeline->get_audio_tracks().size() > 0;
-    bool ok;
-
-    if (has_audio) {
-        ok = encoder->open_with_audio(p_path, p_width, p_height, p_fps, p_video_bitrate, p_sample_rate, 2, p_audio_bitrate);
-    } else {
-        ok = encoder->open(p_path, p_width, p_height, p_fps, p_video_bitrate);
-    }
-
-    if (!ok) {
-        UtilityFunctions::push_error("[TimelineRenderer] Failed to open encoder");
-        return false;
-    }
-
-    int total_frames = int(duration * p_fps) + 1;
-    double frame_time = 1.0 / p_fps;
-    int audio_samples_per_frame = p_sample_rate / p_fps;
-
-    UtilityFunctions::print("[TimelineRenderer] Exporting ", total_frames, " frames...");
-
-    for (int frame = 0; frame < total_frames; frame++) {
-        double time = frame * frame_time;
-
-        // ---- Video compositing (CPU path) ----
-        TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
-        Vector<Ref<TimelineTrack>> sorted_tracks;
-        for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
-        struct TrackComparator {
-            _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-                return a->get_layer_index() < b->get_layer_index();
-            }
-        };
-        sorted_tracks.sort_custom<TrackComparator>();
-
-        Vector<Ref<Image>> frames;
-        for (int i = 0; i < sorted_tracks.size(); i++) {
-            Ref<TimelineTrack> track = sorted_tracks[i];
-            Ref<TimelineClip> clip = track->get_clip_at_time(time);
-            if (clip.is_null()) continue;
-
-            double local_time = time - clip->get_timeline_start();
-            double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
-
-            Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
-            if (decoder.is_null()) continue;
-
-            // Only seek if we jumped discontinuously; sequential reads are smooth
-            double decoder_time = decoder->get_current_time();
-            double diff = source_time - decoder_time;
-            if (diff < -0.05 || diff > 0.5) {
-                decoder->seek(source_time);
+    if (has_audio && audio_codec_ctx) {
+        int fifo_size = av_audio_fifo_size(audio_fifo);
+        while (fifo_size > 0) {
+            int samples_to_read = fifo_size < audio_codec_ctx->frame_size ? fifo_size : audio_codec_ctx->frame_size;
+            av_audio_fifo_read(audio_fifo, (void **)audio_frame->data, samples_to_read);
+
+            if (samples_to_read < audio_codec_ctx->frame_size) {
+                av_samples_set_silence(audio_frame->data, samples_to_read,
+                    audio_codec_ctx->frame_size - samples_to_read, channels, AV_SAMPLE_FMT_FLTP);
             }
 
-            Ref<Image> raw_frame = decoder->read_video_frame_scaled(p_width, p_height);
-            if (raw_frame.is_null()) continue;
+            audio_frame->pts = audio_samples_count;
+            audio_samples_count += audio_codec_ctx->frame_size;
 
-            // Apply CPU effects
-            if (clip->get_effect_count() > 0) {
-                raw_frame = _apply_cpu_effects(raw_frame, clip->get_effects(), p_width, p_height);
+            avcodec_send_frame(audio_codec_ctx, audio_frame);
+
+            int ret;
+            while ((ret = avcodec_receive_packet(audio_codec_ctx, packet)) >= 0) {
+                av_packet_rescale_ts(packet, audio_codec_ctx->time_base, audio_stream->time_base);
+                packet->stream_index = audio_stream->index;
+                av_interleaved_write_frame(format_ctx, packet);
+                av_packet_unref(packet);
             }
 
-            // Apply opacity
-            float op = clip->get_opacity();
-            if (op < 1.0f && raw_frame.is_valid()) {
-                Ref<Image> faded = raw_frame->duplicate();
-                int w = faded->get_width();
-                int h = faded->get_height();
-                for (int y = 0; y < h; y++) {
-                    for (int x = 0; x < w; x++) {
-                        Color c = faded->get_pixel(x, y);
-                        c.a *= op;
-                        faded->set_pixel(x, y, c);
-                    }
-                }
-                raw_frame = faded;
-            }
-
-            frames.push_back(raw_frame);
+            fifo_size = av_audio_fifo_size(audio_fifo);
         }
 
-        Ref<Image> img;
-        if (frames.is_empty()) {
-            img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-            img->fill(Color(0, 0, 0, 1));
-        } else if (frames.size() == 1) {
-            img = frames[0];
-        } else {
-            img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
-            img->fill(Color(0, 0, 0, 1));
-            for (int i = 0; i < frames.size(); i++) {
-                if (frames[i].is_valid()) {
-                    img->blit_rect(frames[i], Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
-                }
-            }
+        avcodec_send_frame(audio_codec_ctx, nullptr);
+        int ret;
+        while ((ret = avcodec_receive_packet(audio_codec_ctx, packet)) >= 0) {
+            av_packet_rescale_ts(packet, audio_codec_ctx->time_base, audio_stream->time_base);
+            packet->stream_index = audio_stream->index;
+            av_interleaved_write_frame(format_ctx, packet);
+            av_packet_unref(packet);
         }
-
-        // ---- Text overlays (CPU path: render to image and blit) ----
-        TypedArray<TextOverlay> overlays = timeline->get_text_overlays_at_time(time);
-        for (int i = 0; i < overlays.size(); i++) {
-            Ref<TextOverlay> ov = overlays[i];
-            if (ov.is_null()) continue;
-
-            Ref<Image> text_img = ov->render_to_image();
-            if (text_img.is_null()) continue;
-
-            Vector2 pos = ov->get_position();
-            Vector2 anchor = ov->get_anchor_point();
-            int tw = text_img->get_width();
-            int th = text_img->get_height();
-
-            Vector2 blit_pos = pos - Vector2(anchor.x * tw, anchor.y * th);
-            int bx = int(blit_pos.x);
-            int by = int(blit_pos.y);
-
-            // Simple alpha blit
-            for (int y = 0; y < th; y++) {
-                int py = by + y;
-                if (py < 0 || py >= p_height) continue;
-                for (int x = 0; x < tw; x++) {
-                    int px = bx + x;
-                    if (px < 0 || px >= p_width) continue;
-                    Color src = text_img->get_pixel(x, y);
-                    if (src.a <= 0.001f) continue;
-                    Color dst = img->get_pixel(px, py);
-                    float out_a = src.a + dst.a * (1.0f - src.a);
-                    if (out_a > 0.001f) {
-                        Color out;
-                        out.r = (src.r * src.a + dst.r * dst.a * (1.0f - src.a)) / out_a;
-                        out.g = (src.g * src.a + dst.g * dst.a * (1.0f - src.a)) / out_a;
-                        out.b = (src.b * src.a + dst.b * dst.a * (1.0f - src.a)) / out_a;
-                        out.a = out_a;
-                        img->set_pixel(px, py, out);
-                    }
-                }
-            }
-        }
-
-        if (img.is_null()) {
-            UtilityFunctions::push_error("[TimelineRenderer] Failed to render frame ", frame);
-            encoder->close();
-            return false;
-        }
-
-        if (!encoder->write_frame(img)) {
-            UtilityFunctions::push_error("[TimelineRenderer] Failed to write frame ", frame);
-            encoder->close();
-            return false;
-        }
-
-        if (has_audio) {
-            PackedFloat32Array audio = render_audio(time, audio_samples_per_frame, p_sample_rate);
-            if (audio.size() > 0) {
-                encoder->write_audio(audio);
-            }
-        }
-
-        if (frame % 30 == 0) {
-            UtilityFunctions::print("  Exported frame ", frame, "/", total_frames);
-        }
-
-        last_render_time = time;
     }
 
-    encoder->close();
-    clear_cache();
-
-    UtilityFunctions::print("[TimelineRenderer] Export complete: ", p_path);
-    return true;
-}
-
-void TimelineRenderer::clear_cache() {
-    Array keys = decoders.keys();
-    for (int i = 0; i < keys.size(); i++) {
-        Ref<VideoDecoder> decoder = decoders[keys[i]];
-        if (decoder.is_valid()) {
-            decoder->close();
+    if (video_codec_ctx) {
+        avcodec_send_frame(video_codec_ctx, nullptr);
+        int ret;
+        while ((ret = avcodec_receive_packet(video_codec_ctx, packet)) >= 0) {
+            av_packet_rescale_ts(packet, video_codec_ctx->time_base, video_stream->time_base);
+            packet->stream_index = video_stream->index;
+            av_interleaved_write_frame(format_ctx, packet);
+            av_packet_unref(packet);
         }
     }
-    decoders.clear();
 
-    if (preview_texture_rid.is_valid()) {
-        RenderingServer::get_singleton()->free_rid(preview_texture_rid);
-        preview_texture_rid = RID();
-    }
-    preview_texture.unref();
-    preview_tex_w = 0;
-    preview_tex_h = 0;
-
-    _free_gpu_compositor();
-
-    mat_normal.unref();
-    mat_add.unref();
-    mat_multiply.unref();
-    mat_subtract.unref();
-
-    composite_buffer.unref();
-    black_frame.unref();
-
-    last_render_time = -1.0;
-}
-
-// ------------------------------------------------------------------
-// Stubs for declared-but-not-yet-implemented private helpers
-// ------------------------------------------------------------------
-
-const Vector<Ref<TimelineTrack>> &TimelineRenderer::_get_sorted_video_tracks() {
-    static Vector<Ref<TimelineTrack>> empty;
-    if (timeline.is_null()) return empty;
-    if (!video_tracks_dirty) return cached_video_tracks;
-    cached_video_tracks.clear();
-    TypedArray<TimelineTrack> vt = timeline->get_video_tracks();
-    for (int i = 0; i < vt.size(); i++) cached_video_tracks.push_back(vt[i]);
-    struct TrackComparator {
-        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-            return a->get_layer_index() < b->get_layer_index();
+    if (format_ctx) {
+        av_write_trailer(format_ctx);
+        if (format_ctx->oformat && !(format_ctx->oformat->flags & AVFMT_NOFILE)) {
+            avio_closep(&format_ctx->pb);
         }
-    };
-    cached_video_tracks.sort_custom<TrackComparator>();
-    video_tracks_dirty = false;
-    return cached_video_tracks;
-}
-
-const Vector<Ref<TimelineTrack>> &TimelineRenderer::_get_sorted_audio_tracks() {
-    static Vector<Ref<TimelineTrack>> empty;
-    if (timeline.is_null()) return empty;
-    if (!audio_tracks_dirty) return cached_audio_tracks;
-    cached_audio_tracks.clear();
-    TypedArray<TimelineTrack> at = timeline->get_audio_tracks();
-    for (int i = 0; i < at.size(); i++) cached_audio_tracks.push_back(at[i]);
-    struct TrackComparator {
-        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
-            return a->get_layer_index() < b->get_layer_index();
-        }
-    };
-    cached_audio_tracks.sort_custom<TrackComparator>();
-    audio_tracks_dirty = false;
-    return cached_audio_tracks;
-}
-
-Vector2i TimelineRenderer::_get_decode_size(int p_src_w, int p_src_h, int p_dst_w, int p_dst_h) const {
-    // Placeholder: return destination size
-    return Vector2i(p_dst_w, p_dst_h);
-}
-
-void TimelineRenderer::_cpu_blit_normal(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity) {
-    if (!p_dst || !p_src) return;
-    p_dst->blit_rect(p_src, Rect2i(0, 0, p_src->get_width(), p_src->get_height()), Vector2i(p_dx, p_dy));
-}
-
-void TimelineRenderer::_cpu_blit_add(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity) {
-    // TODO: implement additive CPU blend
-    _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity);
-}
-
-void TimelineRenderer::_cpu_blit_multiply(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity) {
-    // TODO: implement multiply CPU blend
-    _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity);
-}
-
-void TimelineRenderer::_cpu_blit_subtract(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity) {
-    // TODO: implement subtract CPU blend
-    _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity);
-}
-
-void TimelineRenderer::_cpu_blit(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity, int p_blend_mode) {
-    switch (p_blend_mode) {
-        case TimelineTrack::BLEND_MODE_ADD:       _cpu_blit_add(p_dst, p_src, p_dx, p_dy, p_opacity); break;
-        case TimelineTrack::BLEND_MODE_MULTIPLY:  _cpu_blit_multiply(p_dst, p_src, p_dx, p_dy, p_opacity); break;
-        case TimelineTrack::BLEND_MODE_SUBTRACT:  _cpu_blit_subtract(p_dst, p_src, p_dx, p_dy, p_opacity); break;
-        case TimelineTrack::BLEND_MODE_NORMAL:
-        default:                                  _cpu_blit_normal(p_dst, p_src, p_dx, p_dy, p_opacity); break;
     }
+
+    av_audio_fifo_free(audio_fifo);
+    audio_fifo = nullptr;
+    swr_free(&swr_ctx);
+    av_frame_free(&audio_frame);
+    avcodec_free_context(&audio_codec_ctx);
+
+    av_frame_free(&video_frame);
+    av_packet_free(&packet);
+    avcodec_free_context(&video_codec_ctx);
+    sws_freeContext(sws_ctx);
+    sws_ctx = nullptr;
+    avformat_free_context(format_ctx);
+    format_ctx = nullptr;
+
+    initialized = false;
+    has_audio = false;
+    video_frame_count = 0;
+    audio_samples_count = 0;
+    UtilityFunctions::print("[VideoEncoder] Closed successfully.");
 }
 
-Ref<Image> TimelineRenderer::_cpu_render_text_overlay(const Ref<TextOverlay> &p_overlay, int p_canvas_w, int p_canvas_h, double p_time) {
-    if (p_overlay.is_null()) return Ref<Image>();
-    return p_overlay->render_to_image();
-}
-
-Ref<Image> TimelineRenderer::_cpu_render_image_overlay(const Ref<ImageOverlay> &p_overlay, int p_canvas_w, int p_canvas_h, double p_time) {
-    if (p_overlay.is_null()) return Ref<Image>();
-    return p_overlay->render_to_image();
-}
-
-Ref<Image> TimelineRenderer::_cpu_composite_frame(double p_time, int p_width, int p_height) {
-    // TODO: full CPU compositing with aspect ratio handling
-    return render_video_frame(p_time, p_width, p_height);
+bool VideoEncoder::is_open() const {
+    return initialized;
 }
