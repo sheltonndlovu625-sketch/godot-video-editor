@@ -4,6 +4,9 @@
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
+#include <godot_cpp/classes/audio_stream_player.hpp>
+#include <godot_cpp/classes/audio_stream_generator.hpp>
+#include <godot_cpp/classes/audio_stream_generator_playback.hpp>
 #include "timeline_renderer.h"
 
 namespace godot {
@@ -28,8 +31,15 @@ private:
     bool loop = true;
     double current_time = 0.0;
 
+    // ---- Live audio preview ----
+    AudioStreamPlayer *audio_player = nullptr;
+    Ref<AudioStreamGenerator> audio_generator;
+    Ref<AudioStreamGeneratorPlayback> audio_playback;
+    int audio_sample_rate = 48000;
+
 protected:
     static void _bind_methods();
+    void _notification(int p_what);
 
 public:
     void _process(double delta) override;
