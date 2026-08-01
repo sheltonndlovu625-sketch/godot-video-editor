@@ -32,7 +32,9 @@ public:
 private:
     Ref<Timeline> timeline;
     Dictionary decoders;
+    Dictionary audio_decoders;
     double last_render_time = -1.0;
+    double last_audio_time = -1.0;
 
     Ref<ImageTexture> preview_texture;
     RID preview_texture_rid;
@@ -61,9 +63,10 @@ private:
     Ref<CanvasItemMaterial> mat_multiply;
     Ref<CanvasItemMaterial> mat_subtract;
 
-    AspectRatioMode aspect_ratio_mode = ASPECT_FIT;  // <-- CHANGED
+    AspectRatioMode aspect_ratio_mode = ASPECT_FIT;
 
     Ref<VideoDecoder> get_decoder(const String &p_path);
+    Ref<VideoDecoder> get_audio_decoder(const String &p_path);
     bool _needs_seek(double p_time);
     Ref<Image> composite_frames(const TypedArray<Image> &p_frames, int p_width, int p_height);
     Ref<Image> composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height);
@@ -85,7 +88,6 @@ private:
         const Vector<float> &p_opacities,
         const Vector<Vector2> &p_texture_sizes,
         int p_width, int p_height);
-
 
     Vector2i _get_decode_size(int p_src_w, int p_src_h, int p_dst_w, int p_dst_h) const;
     void _cpu_blit_normal(Image *p_dst, Image *p_src, int p_dx, int p_dy, float p_opacity);
