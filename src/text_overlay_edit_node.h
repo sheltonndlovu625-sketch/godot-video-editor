@@ -56,10 +56,11 @@ private:
 
 protected:
     static void _bind_methods();
+
+public:  // <-- MOVED _draw and _gui_input to public
     void _draw() override;
     void _gui_input(const Ref<InputEvent> &p_event) override;
 
-public:
     void set_text_overlay(const Ref<TextOverlay> &p_overlay);
     Ref<TextOverlay> get_text_overlay() const;
 
