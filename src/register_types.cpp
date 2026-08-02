@@ -24,7 +24,7 @@
 #include "transition_handle_node.h" 
 #include "timeline_clip_container.h" // <-- ADDED
 #include "text_overlay_edit_node.h"  // <-- ADDED for interactive text editing
-
+#include "image_overlay_edit_node.h"
 #include "timeline_playhead.h"
 #include "preview_player.h"
 #include "project_serializer.h"
@@ -47,6 +47,7 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         ClassDB::register_class<VideoDecoder>();
         ClassDB::register_class<VideoStreamFFmpeg>();
         ClassDB::register_class<VideoStreamPlaybackFFmpeg>();
+ClassDB::register_class<ImageOverlayEditNode>();
 
         ClassDB::register_class<TimelineClip>();
         ClassDB::register_class<TimelineTrack>();
