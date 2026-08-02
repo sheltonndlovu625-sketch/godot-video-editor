@@ -81,6 +81,15 @@ void TextOverlay::_bind_methods() {
     ClassDB::bind_method(D_METHOD("render_to_image"), &TextOverlay::render_to_image);
     ClassDB::bind_method(D_METHOD("mark_dirty"), &TextOverlay::mark_dirty);
 
+    // NEW: scale & rotation
+    ClassDB::bind_method(D_METHOD("set_scale", "scale"), &TextOverlay::set_scale);
+    ClassDB::bind_method(D_METHOD("get_scale"), &TextOverlay::get_scale);
+    ClassDB::add_property("TextOverlay", PropertyInfo(Variant::FLOAT, "scale", PROPERTY_HINT_RANGE, "0.1,10.0,0.01"), "set_scale", "get_scale");
+
+    ClassDB::bind_method(D_METHOD("set_rotation", "rotation"), &TextOverlay::set_rotation);
+    ClassDB::bind_method(D_METHOD("get_rotation"), &TextOverlay::get_rotation);
+    ClassDB::add_property("TextOverlay", PropertyInfo(Variant::FLOAT, "rotation"), "set_rotation", "get_rotation");
+
     BIND_ENUM_CONSTANT(ANIM_NONE);
     BIND_ENUM_CONSTANT(ANIM_FADE_IN);
     BIND_ENUM_CONSTANT(ANIM_FADE_OUT);
@@ -162,6 +171,13 @@ void TextOverlay::set_animation_duration(double p_duration) { animation_duration
 double TextOverlay::get_animation_duration() const { return animation_duration; }
 
 void TextOverlay::mark_dirty() { text_dirty = true; }
+
+// NEW
+void TextOverlay::set_scale(float p_scale) { overlay_scale = CLAMP(p_scale, 0.1f, 10.0f); }
+float TextOverlay::get_scale() const { return overlay_scale; }
+
+void TextOverlay::set_rotation(float p_rot) { overlay_rotation = p_rot; }
+float TextOverlay::get_rotation() const { return overlay_rotation; }
 
 Vector2 TextOverlay::_compute_text_size() const {
     if (font.is_null() || text.is_empty()) {
