@@ -503,12 +503,12 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
 
 Ref<Image> TimelineRenderer::_render_text_overlay_from_node(const Ref<TextOverlay> &p_overlay, TextOverlayEditNode *p_edit_node, double p_time) {
     if (p_overlay.is_null()) return Ref<Image>();
-    
+
     // If edit node is selected, mark dirty to pick up live transform changes
     if (p_edit_node && p_edit_node->is_selected()) {
         p_edit_node->mark_dirty();
     }
-    
+
     return p_overlay->render_to_image();
 }
 
@@ -613,18 +613,18 @@ Ref<Image> TimelineRenderer::render_video_frame_with_edit_nodes(double p_time, i
         if (Math::abs(rot) > 0.001f) {
             Ref<Image> rotated = Image::create(tw, th, false, Image::FORMAT_RGBA8);
             rotated->fill(Color(0, 0, 0, 0));
-            
+
             float cos_r = Math::cos(rot);
             float sin_r = Math::sin(rot);
             Vector2 center(tw * 0.5f, th * 0.5f);
-            
+
             for (int y = 0; y < th; y++) {
                 for (int x = 0; x < tw; x++) {
                     float dx = x - center.x;
                     float dy = y - center.y;
                     float src_x = center.x + dx * cos_r - dy * sin_r;
                     float src_y = center.y + dx * sin_r + dy * cos_r;
-                    
+
                     int sx = int(Math::round(src_x));
                     int sy = int(Math::round(src_y));
                     if (sx >= 0 && sx < tw && sy >= 0 && sy < th) {
@@ -1101,18 +1101,18 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
             if (Math::abs(rot) > 0.001f) {
                 Ref<Image> rotated = Image::create(tw, th, false, Image::FORMAT_RGBA8);
                 rotated->fill(Color(0, 0, 0, 0));
-                
+
                 float cos_r = Math::cos(rot);
                 float sin_r = Math::sin(rot);
                 Vector2 center(tw * 0.5f, th * 0.5f);
-                
+
                 for (int y = 0; y < th; y++) {
                     for (int x = 0; x < tw; x++) {
                         float dx = x - center.x;
                         float dy = y - center.y;
                         float src_x = center.x + dx * cos_r - dy * sin_r;
                         float src_y = center.y + dx * sin_r + dy * cos_r;
-                        
+
                         int sx = int(Math::round(src_x));
                         int sy = int(Math::round(src_y));
                         if (sx >= 0 && sx < tw && sy >= 0 && sy < th) {
@@ -1120,11 +1120,6 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
                         }
                     }
                 }
-                text_img = rotated;
-            }
-
-            Vector2 blit_pos = pos - Vector2(anchor.x * tw, anchor.y * th);
-            int bx = int(blit }
                 text_img = rotated;
             }
 
