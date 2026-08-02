@@ -23,6 +23,7 @@
 #include "transition_effect.h" 
 #include "transition_handle_node.h" 
 #include "timeline_clip_container.h" // <-- ADDED
+#include "text_overlay_edit_node.h"  // <-- ADDED for interactive text editing
 
 #include "timeline_playhead.h"
 #include "preview_player.h"
@@ -41,33 +42,34 @@ using namespace godot;
 void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
     if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
         avformat_network_init();
-        
+
         ClassDB::register_class<VideoEncoder>();
         ClassDB::register_class<VideoDecoder>();
         ClassDB::register_class<VideoStreamFFmpeg>();
         ClassDB::register_class<VideoStreamPlaybackFFmpeg>();
-        
+
         ClassDB::register_class<TimelineClip>();
         ClassDB::register_class<TimelineTrack>();
         ClassDB::register_class<Timeline>();
         ClassDB::register_class<TimelineRenderer>();
-        
+
         ClassDB::register_class<VideoEffect>();
         ClassDB::register_class<ShaderVideoEffect>();
         ClassDB::register_class<ColorCorrectionEffect>();
         ClassDB::register_class<TransitionEffect>(); 
         ClassDB::register_class<AudioFX>(); // ---- REGISTERED AUDIO FX ----
-        
+
         ClassDB::register_class<TextOverlay>();
         ClassDB::register_class<ImageOverlay>();
         ClassDB::register_class<CaptionSegment>();
         ClassDB::register_class<AutoCaptionGenerator>();
-        
+
         ClassDB::register_class<TimelineClipNode>();
         ClassDB::register_class<TimelineClipContainer>(); // <-- ADDED
         ClassDB::register_class<TimelineTrackNode>();
         ClassDB::register_class<TimelineRuler>();
         ClassDB::register_class<TransitionHandleNode>(); 
+        ClassDB::register_class<TextOverlayEditNode>(); // <-- ADDED for interactive text editing
 
         ClassDB::register_class<TimelinePlayhead>();
         ClassDB::register_class<PreviewPlayer>();
