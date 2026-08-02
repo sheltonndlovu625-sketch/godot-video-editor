@@ -22,6 +22,8 @@ void TimelineRenderer::_bind_methods() {
     ClassDB::bind_method(D_METHOD("render_video_frame", "time", "width", "height"), &TimelineRenderer::render_video_frame);
     ClassDB::bind_method(D_METHOD("render_video_frame_to_texture", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_texture);
     ClassDB::bind_method(D_METHOD("render_video_frame_to_rid", "time", "width", "height"), &TimelineRenderer::render_video_frame_to_rid);
+    ClassDB::bind_method(D_METHOD("render_video_frame_with_edit_nodes", "time", "width", "height", "edit_nodes"), &TimelineRenderer::render_video_frame_with_edit_nodes);
+    ClassDB::bind_method(D_METHOD("render_video_frame_to_rid_with_edit_nodes", "time", "width", "height", "edit_nodes"), &TimelineRenderer::render_video_frame_to_rid_with_edit_nodes);
     ClassDB::bind_method(D_METHOD("render_audio", "time", "num_samples", "sample_rate"), &TimelineRenderer::render_audio);
     ClassDB::bind_method(D_METHOD("export_to_file", "path", "width", "height", "fps", "video_bitrate", "sample_rate", "audio_bitrate"), &TimelineRenderer::export_to_file);
     ClassDB::bind_method(D_METHOD("clear_cache"), &TimelineRenderer::clear_cache);
@@ -495,6 +497,330 @@ RID TimelineRenderer::render_video_frame_to_rid(double p_time, int p_width, int 
 
 }
 
+// ------------------------------------------------------------------
+// TextOverlayEditNode support helpers
+// ------------------------------------------------------------------
+
+Ref<Image> TimelineRenderer::_render_text_overlay_from_node(const Ref<TextOverlay> &p_overlay, TextOverlayEditNode *p_edit_node, double p_time) {
+    if (p_overlay.is_null()) return Ref<Image>();
+    
+    // If edit node is selected, mark dirty to pick up live transform changes
+    if (p_edit_node && p_edit_node->is_selected()) {
+        p_edit_node->mark_dirty();
+    }
+    
+    return p_overlay->render_to_image();
+}
+
+// ------------------------------------------------------------------
+// CPU path with edit node awareness
+// ------------------------------------------------------------------
+
+Ref<Image> TimelineRenderer::render_video_frame_with_edit_nodes(double p_time, int p_width, int p_height, const TypedArray<TextOverlayEditNode> &p_edit_nodes) {
+    if (timeline.is_null()) {
+        return Ref<Image>();
+    }
+
+    bool seek = _needs_seek(p_time);
+
+    // ---- Composite video clips ----
+    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
+    Vector<Ref<TimelineTrack>> sorted_tracks;
+    for (int i = 0; i < video_tracks.size(); i++) {
+        sorted_tracks.push_back(video_tracks[i]);
+    }
+    struct TrackComparator {
+        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+            return a->get_layer_index() < b->get_layer_index();
+        }
+    };
+    sorted_tracks.sort_custom<TrackComparator>();
+
+    Vector<Ref<Image>> frames;
+    for (int i = 0; i < sorted_tracks.size(); i++) {
+        Ref<TimelineTrack> track = sorted_tracks[i];
+        Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
+        if (clip.is_null()) continue;
+
+        double local_time = p_time - clip->get_timeline_start();
+        double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
+
+        Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
+        if (decoder.is_null()) continue;
+
+        if (seek) {
+            decoder->seek(source_time);
+        }
+
+        Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
+        if (frame.is_null()) continue;
+
+        frames.push_back(frame);
+    }
+
+    last_render_time = p_time;
+
+    TypedArray<TextOverlay> overlays = timeline->get_text_overlays_at_time(p_time);
+    bool has_overlays = overlays.size() > 0;
+
+    Ref<Image> img;
+    if (frames.is_empty()) {
+        img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+        img->fill(Color(0, 0, 0, 1));
+    } else if (frames.size() == 1 && !has_overlays) {
+        return frames[0];
+    } else if (frames.size() == 1) {
+        img = frames[0]->duplicate();
+    } else {
+        img = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+        img->fill(Color(0, 0, 0, 1));
+        for (int i = 0; i < frames.size(); i++) {
+            if (frames[i].is_valid()) {
+                img->blit_rect(frames[i], Rect2i(0, 0, p_width, p_height), Vector2i(0, 0));
+            }
+        }
+    }
+
+    // Build lookup from TextOverlay resource to edit node
+    HashMap<TextOverlay*, TextOverlayEditNode*> edit_node_map;
+    for (int i = 0; i < p_edit_nodes.size(); i++) {
+        TextOverlayEditNode *node = Object::cast_to<TextOverlayEditNode>(p_edit_nodes[i]);
+        if (!node) continue;
+        Ref<TextOverlay> ov = node->get_text_overlay();
+        if (ov.is_valid()) {
+            edit_node_map[ov.ptr()] = node;
+        }
+    }
+
+    // ---- Composite text overlays with edit node awareness ----
+    for (int i = 0; i < overlays.size(); i++) {
+        Ref<TextOverlay> ov = overlays[i];
+        if (ov.is_null()) continue;
+
+        TextOverlayEditNode **edit_node_ptr = edit_node_map.getptr(ov.ptr());
+        TextOverlayEditNode *edit_node = edit_node_ptr ? *edit_node_ptr : nullptr;
+
+        Ref<Image> text_img = _render_text_overlay_from_node(ov, edit_node, p_time);
+        if (text_img.is_null()) continue;
+
+        Vector2 pos = ov->get_position();
+        Vector2 anchor = ov->get_anchor_point();
+        int tw = text_img->get_width();
+        int th = text_img->get_height();
+
+        // Handle rotation if present (from edit node)
+        float rot = ov->get_rotation();
+        if (Math::abs(rot) > 0.001f) {
+            Ref<Image> rotated = Image::create(tw, th, false, Image::FORMAT_RGBA8);
+            rotated->fill(Color(0, 0, 0, 0));
+            
+            float cos_r = Math::cos(rot);
+            float sin_r = Math::sin(rot);
+            Vector2 center(tw * 0.5f, th * 0.5f);
+            
+            for (int y = 0; y < th; y++) {
+                for (int x = 0; x < tw; x++) {
+                    float dx = x - center.x;
+                    float dy = y - center.y;
+                    float src_x = center.x + dx * cos_r - dy * sin_r;
+                    float src_y = center.y + dx * sin_r + dy * cos_r;
+                    
+                    int sx = int(Math::round(src_x));
+                    int sy = int(Math::round(src_y));
+                    if (sx >= 0 && sx < tw && sy >= 0 && sy < th) {
+                        rotated->set_pixel(x, y, text_img->get_pixel(sx, sy));
+                    }
+                }
+            }
+            text_img = rotated;
+        }
+
+        Vector2 blit_pos = pos - Vector2(anchor.x * tw, anchor.y * th);
+        int bx = int(blit_pos.x);
+        int by = int(blit_pos.y);
+
+        for (int y = 0; y < th; y++) {
+            int py = by + y;
+            if (py < 0 || py >= p_height) continue;
+            for (int x = 0; x < tw; x++) {
+                int px = bx + x;
+                if (px < 0 || px >= p_width) continue;
+                Color src = text_img->get_pixel(x, y);
+                if (src.a <= 0.001f) continue;
+                Color dst = img->get_pixel(px, py);
+                float out_a = src.a + dst.a * (1.0f - src.a);
+                if (out_a > 0.001f) {
+                    Color out;
+                    out.r = (src.r * src.a + dst.r * dst.a * (1.0f - src.a)) / out_a;
+                    out.g = (src.g * src.a + dst.g * dst.a * (1.0f - src.a)) / out_a;
+                    out.b = (src.b * src.a + dst.b * dst.a * (1.0f - src.a)) / out_a;
+                    out.a = out_a;
+                    img->set_pixel(px, py, out);
+                }
+            }
+        }
+    }
+
+    return img;
+}
+
+// ------------------------------------------------------------------
+// GPU path with edit node awareness
+// ------------------------------------------------------------------
+
+RID TimelineRenderer::render_video_frame_to_rid_with_edit_nodes(double p_time, int p_width, int p_height, const TypedArray<TextOverlayEditNode> &p_edit_nodes) {
+    if (timeline.is_null()) return RID();
+
+    RenderingServer *rs = RenderingServer::get_singleton();
+
+    // Get sorted video tracks
+    TypedArray<TimelineTrack> video_tracks = timeline->get_video_tracks();
+    Vector<Ref<TimelineTrack>> sorted_tracks;
+    for (int i = 0; i < video_tracks.size(); i++) sorted_tracks.push_back(video_tracks[i]);
+    struct TrackComparator {
+        _FORCE_INLINE_ bool operator()(const Ref<TimelineTrack> &a, const Ref<TimelineTrack> &b) const {
+            return a->get_layer_index() < b->get_layer_index();
+        }
+    };
+    sorted_tracks.sort_custom<TrackComparator>();
+
+    bool seek = _needs_seek(p_time);
+
+    // ---- Collect video clip layers ----
+    Vector<RID> clip_textures;
+    Vector<Transform2D> clip_transforms;
+    Vector<int> clip_blend_modes;
+    Vector<float> clip_opacities;
+    Vector<RID> temp_textures;
+    Vector<Vector2> clip_texture_sizes;
+
+    for (int i = 0; i < sorted_tracks.size(); i++) {
+        Ref<TimelineTrack> track = sorted_tracks[i];
+        Ref<TimelineClip> clip = track->get_clip_at_time(p_time);
+        if (clip.is_null()) continue;
+
+        double local_time = p_time - clip->get_timeline_start();
+        double source_time = clip->get_source_in_point() + (local_time * clip->get_playback_speed());
+
+        Ref<VideoDecoder> decoder = get_decoder(clip->get_source_path());
+        if (decoder.is_null()) continue;
+        if (seek) decoder->seek(source_time);
+
+        Ref<Image> frame = decoder->read_video_frame_scaled(p_width, p_height);
+        if (frame.is_null()) continue;
+
+        RID frame_tex = rs->texture_2d_create(frame);
+        temp_textures.push_back(frame_tex);
+        RID current_tex = frame_tex;
+
+        // Apply clip effects (GPU path)
+        TypedArray<VideoEffect> fx = clip->get_effects();
+        for (int e = 0; e < fx.size(); e++) {
+            Ref<VideoEffect> effect = fx[e];
+            if (effect.is_null()) continue;
+            RID next_tex = effect->apply_to_texture(rs, current_tex, p_width, p_height);
+            current_tex = next_tex;
+        }
+
+        clip_textures.push_back(current_tex);
+        clip_texture_sizes.push_back(Vector2(p_width, p_height));
+
+        // Build Transform2D from clip properties
+        float rot = clip->get_rotation();
+        Vector2 scl = clip->get_scale();
+        Vector2 pos = clip->get_position();
+        Vector2 anchor = clip->get_anchor_point();
+
+        Transform2D t;
+        t[0] = Vector2(Math::cos(rot), Math::sin(rot)) * scl.x;
+        t[1] = Vector2(-Math::sin(rot), Math::cos(rot)) * scl.y;
+        Vector2 anchor_offset = Vector2(anchor.x * p_width, anchor.y * p_height);
+        t[2] = pos - (t[0] * anchor_offset.x + t[1] * anchor_offset.y);
+
+        clip_transforms.push_back(t);
+        clip_blend_modes.push_back(track->get_blend_mode());
+        clip_opacities.push_back(clip->get_opacity());
+    }
+
+    // Build lookup from TextOverlay to edit node
+    HashMap<TextOverlay*, TextOverlayEditNode*> edit_node_map;
+    for (int i = 0; i < p_edit_nodes.size(); i++) {
+        TextOverlayEditNode *node = Object::cast_to<TextOverlayEditNode>(p_edit_nodes[i]);
+        if (!node) continue;
+        Ref<TextOverlay> ov = node->get_text_overlay();
+        if (ov.is_valid()) {
+            edit_node_map[ov.ptr()] = node;
+        }
+    }
+
+    // ---- Collect text overlay layers (on top of video) with edit node awareness ----
+    TypedArray<TextOverlay> text_overlays = timeline->get_text_overlays_at_time(p_time);
+    for (int i = 0; i < text_overlays.size(); i++) {
+        Ref<TextOverlay> ov = text_overlays[i];
+        if (ov.is_null()) continue;
+
+        TextOverlayEditNode **edit_node_ptr = edit_node_map.getptr(ov.ptr());
+        TextOverlayEditNode *edit_node = edit_node_ptr ? *edit_node_ptr : nullptr;
+
+        // If edit node is selected, mark dirty to pick up live transform changes
+        if (edit_node && edit_node->is_selected()) {
+            edit_node->mark_dirty();
+        }
+
+        RID text_tex = ov->render_to_rid(rs, p_width, p_height, p_time);
+        if (!text_tex.is_valid()) continue;
+
+        clip_textures.push_back(text_tex);
+
+        Vector2 text_size = ov->get_render_size();
+        clip_texture_sizes.push_back(text_size);
+
+        Vector2 pos = ov->get_position();
+        Vector2 anchor = ov->get_anchor_point();
+        float opacity = ov->get_opacity();
+        float rot = ov->get_rotation();
+        float scl = ov->get_scale();
+
+        // Apply scale and rotation from TextOverlay (supported by edit node)
+        Vector2 anchor_offset = Vector2(anchor.x * text_size.x, anchor.y * text_size.y);
+
+        Transform2D t;
+        t[0] = Vector2(Math::cos(rot), Math::sin(rot)) * scl;
+        t[1] = Vector2(-Math::sin(rot), Math::cos(rot)) * scl;
+        t[2] = pos - (t[0] * anchor_offset.x + t[1] * anchor_offset.y);
+
+        clip_transforms.push_back(t);
+        clip_blend_modes.push_back(TimelineTrack::BLEND_MODE_NORMAL);
+        clip_opacities.push_back(opacity);
+    }
+
+    last_render_time = p_time;
+
+    if (clip_textures.is_empty()) {
+        if (black_frame.is_null() || black_frame->get_width() != p_width || black_frame->get_height() != p_height) {
+            black_frame = Image::create(p_width, p_height, false, Image::FORMAT_RGBA8);
+            black_frame->fill(Color(0, 0, 0, 1));
+        }
+        RID black_tex = rs->texture_2d_create(black_frame);
+        temp_textures.push_back(black_tex);
+        clip_textures.push_back(black_tex);
+        clip_texture_sizes.push_back(Vector2(p_width, p_height));
+        clip_transforms.push_back(Transform2D());
+        clip_blend_modes.push_back(TimelineTrack::BLEND_MODE_NORMAL);
+        clip_opacities.push_back(1.0f);
+    }
+
+    RID final_tex = _composite_gpu_with_transforms(rs,
+        clip_textures, clip_transforms, clip_blend_modes, clip_opacities, clip_texture_sizes,
+        p_width, p_height);
+
+    for (int i = 0; i < temp_textures.size(); i++) {
+        rs->free_rid(temp_textures[i]);
+    }
+
+    return final_tex;
+}
+
 Ref<Image> TimelineRenderer::composite_frames_fast(const Vector<Ref<Image>> &p_frames, int p_width, int p_height) {
     if (p_frames.is_empty()) {
         return Ref<Image>();
@@ -628,10 +954,10 @@ Ref<Image> TimelineRenderer::_apply_cpu_effects(const Ref<Image> &p_frame, const
 }
 
 // ------------------------------------------------------------------
-// Export with CPU effects + text overlay support
+// Export with CPU effects + text overlay support + edit node support
 // ------------------------------------------------------------------
 
-bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate) {
+bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate, const TypedArray<TextOverlayEditNode> &p_edit_nodes) {
     if (timeline.is_null()) {
         UtilityFunctions::push_error("[TimelineRenderer] No timeline set");
         return false;
@@ -665,6 +991,17 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
     int audio_samples_per_frame = p_sample_rate / p_fps;
 
     UtilityFunctions::print("[TimelineRenderer] Exporting ", total_frames, " frames...");
+
+    // Build edit node lookup once
+    HashMap<TextOverlay*, TextOverlayEditNode*> edit_node_map;
+    for (int i = 0; i < p_edit_nodes.size(); i++) {
+        TextOverlayEditNode *node = Object::cast_to<TextOverlayEditNode>(p_edit_nodes[i]);
+        if (!node) continue;
+        Ref<TextOverlay> ov = node->get_text_overlay();
+        if (ov.is_valid()) {
+            edit_node_map[ov.ptr()] = node;
+        }
+    }
 
     for (int frame = 0; frame < total_frames; frame++) {
         double time = frame * frame_time;
@@ -748,13 +1085,48 @@ bool TimelineRenderer::export_to_file(const String &p_path, int p_width, int p_h
             Ref<TextOverlay> ov = overlays[i];
             if (ov.is_null()) continue;
 
-            Ref<Image> text_img = ov->render_to_image();
+            TextOverlayEditNode **edit_node_ptr = edit_node_map.getptr(ov.ptr());
+            TextOverlayEditNode *edit_node = edit_node_ptr ? *edit_node_ptr : nullptr;
+
+            Ref<Image> text_img = _render_text_overlay_from_node(ov, edit_node, time);
             if (text_img.is_null()) continue;
 
             Vector2 pos = ov->get_position();
             Vector2 anchor = ov->get_anchor_point();
             int tw = text_img->get_width();
             int th = text_img->get_height();
+
+            // Handle rotation if present
+            float rot = ov->get_rotation();
+            if (Math::abs(rot) > 0.001f) {
+                Ref<Image> rotated = Image::create(tw, th, false, Image::FORMAT_RGBA8);
+                rotated->fill(Color(0, 0, 0, 0));
+                
+                float cos_r = Math::cos(rot);
+                float sin_r = Math::sin(rot);
+                Vector2 center(tw * 0.5f, th * 0.5f);
+                
+                for (int y = 0; y < th; y++) {
+                    for (int x = 0; x < tw; x++) {
+                        float dx = x - center.x;
+                        float dy = y - center.y;
+                        float src_x = center.x + dx * cos_r - dy * sin_r;
+                        float src_y = center.y + dx * sin_r + dy * cos_r;
+                        
+                        int sx = int(Math::round(src_x));
+                        int sy = int(Math::round(src_y));
+                        if (sx >= 0 && sx < tw && sy >= 0 && sy < th) {
+                            rotated->set_pixel(x, y, text_img->get_pixel(sx, sy));
+                        }
+                    }
+                }
+                text_img = rotated;
+            }
+
+            Vector2 blit_pos = pos - Vector2(anchor.x * tw, anchor.y * th);
+            int bx = int(blit }
+                text_img = rotated;
+            }
 
             Vector2 blit_pos = pos - Vector2(anchor.x * tw, anchor.y * th);
             int bx = int(blit_pos.x);
