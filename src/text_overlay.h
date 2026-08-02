@@ -45,6 +45,10 @@ private:
     AnimationType animation = ANIM_NONE;
     double animation_duration = 1.0;
 
+    // NEW: transform properties for free-form editing
+    float overlay_scale = 1.0f;
+    float overlay_rotation = 0.0f;
+
     bool text_dirty = true;
     int cached_text_w = 0;
     int cached_text_h = 0;
@@ -98,6 +102,12 @@ public:
     void set_animation_duration(double p_duration);
     double get_animation_duration() const;
     void mark_dirty();
+
+    // NEW
+    void set_scale(float p_scale);
+    float get_scale() const;
+    void set_rotation(float p_rot);
+    float get_rotation() const;
 
     Vector2 get_render_size() const { return Vector2((float)cached_text_w, (float)cached_text_h); }
 
