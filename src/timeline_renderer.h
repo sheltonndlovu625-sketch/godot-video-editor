@@ -16,6 +16,7 @@
 #include "video_effect.h"
 #include "text_overlay.h"
 #include "image_overlay.h"
+#include "text_overlay_edit_node.h"
 
 namespace godot {
 
@@ -101,6 +102,9 @@ private:
 
     Ref<Image> _apply_cpu_effects(const Ref<Image> &p_frame, const TypedArray<VideoEffect> &p_effects, int p_width, int p_height);
 
+    // ---- TextOverlayEditNode support ----
+    Ref<Image> _render_text_overlay_from_node(const Ref<TextOverlay> &p_overlay, TextOverlayEditNode *p_edit_node, double p_time);
+
 protected:
     static void _bind_methods();
 
@@ -114,8 +118,13 @@ public:
     Ref<Image> render_video_frame(double p_time, int p_width, int p_height);
     Ref<ImageTexture> render_video_frame_to_texture(double p_time, int p_width, int p_height);
     RID render_video_frame_to_rid(double p_time, int p_width, int p_height);
+
+    // ---- Edit-node-aware variants ----
+    Ref<Image> render_video_frame_with_edit_nodes(double p_time, int p_width, int p_height, const TypedArray<TextOverlayEditNode> &p_edit_nodes);
+    RID render_video_frame_to_rid_with_edit_nodes(double p_time, int p_width, int p_height, const TypedArray<TextOverlayEditNode> &p_edit_nodes);
+
     PackedFloat32Array render_audio(double p_time, int p_num_samples, int p_sample_rate);
-    bool export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate);
+    bool export_to_file(const String &p_path, int p_width, int p_height, int p_fps, int p_video_bitrate, int p_sample_rate, int p_audio_bitrate, const TypedArray<TextOverlayEditNode> &p_edit_nodes = TypedArray<TextOverlayEditNode>());
     void clear_cache();
 
     TimelineRenderer();
