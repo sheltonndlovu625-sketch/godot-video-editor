@@ -47,7 +47,7 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         ClassDB::register_class<VideoDecoder>();
         ClassDB::register_class<VideoStreamFFmpeg>();
         ClassDB::register_class<VideoStreamPlaybackFFmpeg>();
-ClassDB::register_class<ImageOverlayEditNode>();
+		ClassDB::register_class<ImageOverlayEditNode>();
 
         ClassDB::register_class<TimelineClip>();
         ClassDB::register_class<TimelineTrack>();
