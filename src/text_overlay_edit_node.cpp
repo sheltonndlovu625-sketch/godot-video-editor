@@ -97,12 +97,22 @@ void TextOverlayEditNode::mark_dirty() {
 void TextOverlayEditNode::_update_texture() {
     if (!text_overlay.is_valid()) return;
     Ref<Image> img = text_overlay->render_to_image();
-    if (img.is_null()) return;
+
+    // FIX: render_to_image returns null when the viewport hasn't rendered yet
+    // (VIEWPORT_UPDATE_ONCE draws at end of frame). Keep dirty and retry.
+    if (img.is_null() || img->get_width() == 0 || img->get_height() == 0) {
+        texture_dirty = true;
+        return;
+    }
+
     if (cached_texture.is_null()) {
         cached_texture.instantiate();
     }
     cached_texture->set_image(img);
     texture_dirty = false;
+
+    // FIX: size may have been 0x0 before the texture existed; recalculate now.
+    _update_size_from_overlay();
 }
 
 void TextOverlayEditNode::_update_size_from_overlay() {
