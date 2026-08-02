@@ -225,8 +225,17 @@ void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
         p_rs->canvas_item_add_rect(text_item, Rect2(0, 0, vw, vh), background_color);
     }
 
+    // FIX: Godot draws strings at the baseline. Without an ascent offset,
+    // ascenders clip above y = 0. Push the origin down by font ascent.
+    float ascent = 0.0f;
+    if (font.is_valid()) {
+        ascent = font->get_ascent((int32_t)font_size);
+    }
+    Vector2 text_origin = padding;
+    text_origin.y += ascent;
+
     if (shadow_color.a > 0.001f && font.is_valid() && !text.is_empty()) {
-        Vector2 shadow_pos = padding + shadow_offset;
+        Vector2 shadow_pos = text_origin + shadow_offset;
         font->draw_string(text_item, shadow_pos, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, shadow_color);
     }
 
@@ -234,14 +243,14 @@ void TextOverlay::_ensure_text_resources(RenderingServer *p_rs) {
         for (int ox = -outline_size; ox <= outline_size; ox++) {
             for (int oy = -outline_size; oy <= outline_size; oy++) {
                 if (ox == 0 && oy == 0) continue;
-                Vector2 outline_pos = padding + Vector2((float)ox, (float)oy);
+                Vector2 outline_pos = text_origin + Vector2((float)ox, (float)oy);
                 font->draw_string(text_item, outline_pos, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, outline_color);
             }
         }
     }
 
     if (font.is_valid() && !text.is_empty()) {
-        font->draw_string(text_item, padding, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, color);
+        font->draw_string(text_item, text_origin, text, (HorizontalAlignment)0, -1.0f, (int32_t)font_size, color);
     }
 
     cached_text_w = vw;
@@ -334,5 +343,26 @@ Ref<Image> TextOverlay::render_to_image() {
     p_rs->viewport_set_update_mode(text_viewport, RenderingServer::VIEWPORT_UPDATE_ONCE);
 
     RID tex = p_rs->viewport_get_texture(text_viewport);
-    return p_rs->texture_2d_get(tex);
+    Ref<Image> img = p_rs->texture_2d_get(tex);
+
+    // FIX: VIEWPORT_UPDATE_ONCE renders at the end of the frame. If we call
+    // texture_2d_get() immediately after creating a fresh viewport we get a
+    // blank/transparent image. Detect that and return null so callers retry.
+    if (img.is_valid() && img->get_width() > 0 && img->get_height() > 0) {
+        bool has_content = false;
+        int step_x = MAX(1, img->get_width() / 8);
+        int step_y = MAX(1, img->get_height() / 8);
+        for (int y = 0; y < img->get_height() && !has_content; y += step_y) {
+            for (int x = 0; x < img->get_width() && !has_content; x += step_x) {
+                if (img->get_pixel(x, y).a > 0.01f) {
+                    has_content = true;
+                }
+            }
+        }
+        if (!has_content) {
+            return Ref<Image>(); // not rendered yet — caller should retry next frame
+        }
+    }
+
+    return img;
 }
