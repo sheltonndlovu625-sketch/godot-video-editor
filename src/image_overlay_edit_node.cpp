@@ -174,7 +174,8 @@ bool ImageOverlayEditNode::_is_near_rotate_handle(const Vector2 &p_local_pos) co
     return p_local_pos.distance_to(_get_rotate_handle_pos()) <= handle_radius * 1.8f;
 }
 
-void ImageOverlayEditNode::_draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap) const {
+void ImageOverlayEditNode::_draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap) { // <-- remove trailing const
+
     float x = p_rect.position.x;
     float y = p_rect.position.y;
     float w = p_rect.size.x;
