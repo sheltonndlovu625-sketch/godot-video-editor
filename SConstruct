@@ -49,6 +49,31 @@ if ffmpeg_path:
 ffmpeg_libs = ["avformat", "avcodec", "swresample", "swscale", "avutil"]
 
 # ------------------------------------------------------------------
+# Whisper.cpp Configuration
+# ------------------------------------------------------------------
+whisper_path = ARGUMENTS.get("whisper_path", "whisper.cpp")
+
+if os.path.exists(whisper_path):
+    env.Append(CPPPATH=[whisper_path])
+    
+    # Core whisper + ggml sources (match your cloned version)
+    whisper_sources = [
+        os.path.join(whisper_path, "whisper.cpp"),
+        os.path.join(whisper_path, "ggml.c"),
+        os.path.join(whisper_path, "ggml-alloc.c"),
+        os.path.join(whisper_path, "ggml-backend.c"),
+        os.path.join(whisper_path, "ggml-quants.c"),
+    ]
+    sources.extend(whisper_sources)
+    
+    if env["platform"] not in ["windows"]:
+        env.Append(LIBS=["pthread"])
+    
+    print("Whisper.cpp enabled: " + whisper_path)
+else:
+    print("Whisper.cpp not found at '" + whisper_path + "'. Skipping caption support.")
+
+# ------------------------------------------------------------------
 # Platform-Specific Tweaks
 # ------------------------------------------------------------------
 if env["platform"] == "android":
