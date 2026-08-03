@@ -32,9 +32,10 @@ private:
     Color handle_color = Color(1.0f, 1.0f, 1.0f, 0.9f);
     float handle_radius = 8.0f;
 
-    // Drag state
+    // Drag state (all parent-space math)
     DragMode drag_mode = DRAG_NONE;
-    Vector2 drag_start_pos;
+    Vector2 drag_start_local_pos;
+    Vector2 drag_start_parent_mouse_pos;
     Vector2 drag_start_overlay_pos;
     float drag_start_scale = 1.0f;
     float drag_start_rotation = 0.0f;
@@ -46,14 +47,20 @@ private:
     Vector2 cached_image_size;
     bool texture_dirty = true;
 
+    // Auto-sync tracking
+    Vector2 last_overlay_pos;
+    Vector2 last_overlay_scale;
+    float last_overlay_rotation = 0.0f;
+    Vector2 last_overlay_anchor;
+
     void _update_texture();
     void _update_size_from_overlay();
     Rect2 _get_content_rect() const;
     Vector2 _get_scale_handle_pos() const;
     Vector2 _get_rotate_handle_pos() const;
-    bool _is_near_scale_handle(const Vector2 &p_pos) const;
-    bool _is_near_rotate_handle(const Vector2 &p_pos) const;
-    void _handle_drag(const Vector2 &p_pos);
+    bool _is_near_scale_handle(const Vector2 &p_local_pos) const;
+    bool _is_near_rotate_handle(const Vector2 &p_local_pos) const;
+    void _handle_drag(const Vector2 &p_local_pos);
     void _draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap);
 
 protected:
@@ -62,6 +69,7 @@ protected:
 public:
     void _draw() override;
     void _gui_input(const Ref<InputEvent> &p_event) override;
+    void _process(double delta) override;
 
     void set_image_overlay(const Ref<ImageOverlay> &p_overlay);
     Ref<ImageOverlay> get_image_overlay() const;
