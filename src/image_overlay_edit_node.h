@@ -26,13 +26,11 @@ private:
     Ref<ImageOverlay> image_overlay;
     bool selected = false;
 
-    // Visual settings
     Color selection_border_color = Color(1.0f, 0.85f, 0.2f, 0.9f);
     float selection_border_width = 2.0f;
     Color handle_color = Color(1.0f, 1.0f, 1.0f, 0.9f);
     float handle_radius = 8.0f;
 
-    // Drag state (all parent-space math)
     DragMode drag_mode = DRAG_NONE;
     Vector2 drag_start_local_pos;
     Vector2 drag_start_parent_mouse_pos;
@@ -42,12 +40,10 @@ private:
     float drag_start_angle = 0.0f;
     Vector2 drag_start_center;
 
-    // Cache
     Ref<ImageTexture> cached_texture;
     Vector2 cached_image_size;
     bool texture_dirty = true;
 
-    // Auto-sync tracking
     Vector2 last_overlay_pos;
     Vector2 last_overlay_scale;
     float last_overlay_rotation = 0.0f;
@@ -61,7 +57,7 @@ private:
     bool _is_near_scale_handle(const Vector2 &p_local_pos) const;
     bool _is_near_rotate_handle(const Vector2 &p_local_pos) const;
     void _handle_drag(const Vector2 &p_local_pos);
-    void _draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap);
+    void _draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap) const;
 
 protected:
     static void _bind_methods();
@@ -70,6 +66,7 @@ public:
     void _draw() override;
     void _gui_input(const Ref<InputEvent> &p_event) override;
     void _process(double delta) override;
+    bool _has_point(const Vector2 &p_point) const override;
 
     void set_image_overlay(const Ref<ImageOverlay> &p_overlay);
     Ref<ImageOverlay> get_image_overlay() const;
