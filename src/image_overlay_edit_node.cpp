@@ -146,7 +146,6 @@ void ImageOverlayEditNode::_update_size_from_overlay() {
     Vector2 anchor = image_overlay->get_anchor_point();
     set_position(pos - get_size() * anchor);
 
-    // Sync tracking so _process doesn't immediately fire
     last_overlay_pos = image_overlay->get_position();
     last_overlay_scale = image_overlay->get_scale();
     last_overlay_rotation = image_overlay->get_rotation();
@@ -159,7 +158,7 @@ Rect2 ImageOverlayEditNode::_get_content_rect() const {
 
 Vector2 ImageOverlayEditNode::_get_scale_handle_pos() const {
     Rect2 r = _get_content_rect();
-    return r.position + r.size; // bottom-right
+    return r.position + r.size;
 }
 
 Vector2 ImageOverlayEditNode::_get_rotate_handle_pos() const {
@@ -175,7 +174,7 @@ bool ImageOverlayEditNode::_is_near_rotate_handle(const Vector2 &p_local_pos) co
     return p_local_pos.distance_to(_get_rotate_handle_pos()) <= handle_radius * 1.8f;
 }
 
-void ImageOverlayEditNode::_draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap) {
+void ImageOverlayEditNode::_draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap) const {
     float x = p_rect.position.x;
     float y = p_rect.position.y;
     float w = p_rect.size.x;
@@ -229,28 +228,39 @@ void ImageOverlayEditNode::_draw() {
     if (!selected) return;
 
     Rect2 content = _get_content_rect();
-
-    // Dashed reference box
     _draw_dashed_rect(content, selection_border_color, selection_border_width, 6.0f, 4.0f);
 
     float hr = handle_radius;
 
-    // Corner handles (visual)
-    draw_circle(content.position, hr, handle_color); // TL
-    draw_circle(content.position + Vector2(content.size.x, 0), hr, handle_color); // TR
-    draw_circle(content.position + Vector2(0, content.size.y), hr, handle_color); // BL
+    // Corner dots (visual)
+    draw_circle(content.position, hr, handle_color);
+    draw_circle(content.position + Vector2(content.size.x, 0), hr, handle_color);
+    draw_circle(content.position + Vector2(0, content.size.y), hr, handle_color);
 
-    // Interactive scale handle (BR)
+    // Scale handle (bottom-right)
     Vector2 scale_pos = _get_scale_handle_pos();
     draw_circle(scale_pos, hr, handle_color);
     draw_line(scale_pos - Vector2(4, 0), scale_pos + Vector2(4, 0), Color(0, 0, 0, 0.8f), 1.5f);
     draw_line(scale_pos - Vector2(0, 4), scale_pos + Vector2(0, 4), Color(0, 0, 0, 0.8f), 1.5f);
 
-    // Interactive rotate handle (top-center)
+    // Rotate handle (top-center)
     Vector2 rotate_pos = _get_rotate_handle_pos();
     draw_circle(rotate_pos, hr, handle_color);
     draw_arc(rotate_pos, 4.0f, 0.0f, Math_PI * 1.5f, 8, Color(0, 0, 0, 0.8f), 1.5f);
     draw_line(Vector2(content.position.x + content.size.x * 0.5f, content.position.y), rotate_pos, handle_color, 1.0f);
+}
+
+bool ImageOverlayEditNode::_has_point(const Vector2 &p_point) const {
+    if (_get_content_rect().has_point(p_point)) return true;
+    if (_is_near_scale_handle(p_point)) return true;
+    if (_is_near_rotate_handle(p_point)) return true;
+
+    float hr = handle_radius * 1.8f;
+    Rect2 r = _get_content_rect();
+    if (p_point.distance_to(r.position) <= hr) return true;
+    if (p_point.distance_to(r.position + Vector2(r.size.x, 0)) <= hr) return true;
+    if (p_point.distance_to(r.position + Vector2(0, r.size.y)) <= hr) return true;
+    return false;
 }
 
 void ImageOverlayEditNode::_gui_input(const Ref<InputEvent> &p_event) {
