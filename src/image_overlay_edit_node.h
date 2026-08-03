@@ -57,7 +57,8 @@ private:
     bool _is_near_scale_handle(const Vector2 &p_local_pos) const;
     bool _is_near_rotate_handle(const Vector2 &p_local_pos) const;
     void _handle_drag(const Vector2 &p_local_pos);
-    void _draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap) const;
+	void _draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap); // <-- remove trailing const
+
 
 protected:
     static void _bind_methods();
