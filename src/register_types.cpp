@@ -32,6 +32,7 @@
 #include "timeline_zoom_controller.h"
 #include "audio_waveform.h"
 #include "audio_fx.h" // ---- INCLUDED AUDIO FX ----
+#include "whisper_caption_generator.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -53,7 +54,7 @@ void initialize_video_encoder_module(ModuleInitializationLevel p_level) {
         ClassDB::register_class<TimelineTrack>();
         ClassDB::register_class<Timeline>();
         ClassDB::register_class<TimelineRenderer>();
-
+		ClassDB::register_class<WhisperCaptionGenerator>();
         ClassDB::register_class<VideoEffect>();
         ClassDB::register_class<ShaderVideoEffect>();
         ClassDB::register_class<ColorCorrectionEffect>();
