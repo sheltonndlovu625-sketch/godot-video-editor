@@ -66,7 +66,8 @@ if os.path.exists(whisper_path):
     ]
     sources.extend(whisper_sources)
     
-    if env["platform"] not in ["windows"]:
+    # FIX: Exclude Android too — Bionic has pthread built-in, no -lpthread exists
+    if env["platform"] not in ["windows", "android"]:
         env.Append(LIBS=["pthread"])
     
     print("Whisper.cpp enabled: " + whisper_path)
