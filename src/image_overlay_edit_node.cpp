@@ -133,7 +133,8 @@ void ImageOverlayEditNode::_update_texture() {
 
 void ImageOverlayEditNode::_update_size_from_overlay() {
     if (!image_overlay.is_valid()) return;
-    if (cached_image_size.x <= 0.0f || cached_image_size.y <= 0.0f) {
+
+    if (texture_dirty || cached_image_size.x <= 0.0f || cached_image_size.y <= 0.0f) {
         _update_texture();
     }
     if (cached_image_size.x <= 0.0f || cached_image_size.y <= 0.0f) return;
@@ -144,6 +145,12 @@ void ImageOverlayEditNode::_update_size_from_overlay() {
     Vector2 pos = image_overlay->get_position();
     Vector2 anchor = image_overlay->get_anchor_point();
     set_position(pos - get_size() * anchor);
+
+    // Sync tracking so _process doesn't immediately fire
+    last_overlay_pos = image_overlay->get_position();
+    last_overlay_scale = image_overlay->get_scale();
+    last_overlay_rotation = image_overlay->get_rotation();
+    last_overlay_anchor = image_overlay->get_anchor_point();
 }
 
 Rect2 ImageOverlayEditNode::_get_content_rect() const {
@@ -160,12 +167,12 @@ Vector2 ImageOverlayEditNode::_get_rotate_handle_pos() const {
     return Vector2(r.position.x + r.size.x * 0.5f, r.position.y - handle_radius * 2.5f);
 }
 
-bool ImageOverlayEditNode::_is_near_scale_handle(const Vector2 &p_pos) const {
-    return p_pos.distance_to(_get_scale_handle_pos()) <= handle_radius * 1.8f;
+bool ImageOverlayEditNode::_is_near_scale_handle(const Vector2 &p_local_pos) const {
+    return p_local_pos.distance_to(_get_scale_handle_pos()) <= handle_radius * 1.8f;
 }
 
-bool ImageOverlayEditNode::_is_near_rotate_handle(const Vector2 &p_pos) const {
-    return p_pos.distance_to(_get_rotate_handle_pos()) <= handle_radius * 1.8f;
+bool ImageOverlayEditNode::_is_near_rotate_handle(const Vector2 &p_local_pos) const {
+    return p_local_pos.distance_to(_get_rotate_handle_pos()) <= handle_radius * 1.8f;
 }
 
 void ImageOverlayEditNode::_draw_dashed_rect(const Rect2 &p_rect, const Color &p_color, float p_width, float p_dash, float p_gap) {
@@ -226,8 +233,9 @@ void ImageOverlayEditNode::_draw() {
     // Dashed reference box
     _draw_dashed_rect(content, selection_border_color, selection_border_width, 6.0f, 4.0f);
 
-    // Corner handles (visual)
     float hr = handle_radius;
+
+    // Corner handles (visual)
     draw_circle(content.position, hr, handle_color); // TL
     draw_circle(content.position + Vector2(content.size.x, 0), hr, handle_color); // TR
     draw_circle(content.position + Vector2(0, content.size.y), hr, handle_color); // BL
@@ -254,18 +262,21 @@ void ImageOverlayEditNode::_gui_input(const Ref<InputEvent> &p_event) {
             Vector2 pos = touch->get_position();
             if (_is_near_scale_handle(pos)) {
                 drag_mode = DRAG_SCALE;
-                drag_start_pos = pos;
+                drag_start_local_pos = pos;
+                drag_start_parent_mouse_pos = get_position() + pos;
                 drag_start_scale = image_overlay->get_scale().x;
-                drag_start_center = get_size() * 0.5f;
+                drag_start_center = image_overlay->get_position();
             } else if (_is_near_rotate_handle(pos)) {
                 drag_mode = DRAG_ROTATE;
-                drag_start_pos = pos;
+                drag_start_local_pos = pos;
+                drag_start_parent_mouse_pos = get_position() + pos;
                 drag_start_rotation = image_overlay->get_rotation();
-                Vector2 center = get_size() * 0.5f;
-                drag_start_angle = (pos - center).angle();
+                drag_start_center = image_overlay->get_position();
+                drag_start_angle = (drag_start_parent_mouse_pos - drag_start_center).angle();
             } else if (_get_content_rect().has_point(pos)) {
                 drag_mode = DRAG_MOVE;
-                drag_start_pos = pos;
+                drag_start_local_pos = pos;
+                drag_start_parent_mouse_pos = get_position() + pos;
                 drag_start_overlay_pos = image_overlay->get_position();
                 if (!selected) set_selected(true);
             } else {
@@ -289,18 +300,21 @@ void ImageOverlayEditNode::_gui_input(const Ref<InputEvent> &p_event) {
             Vector2 pos = mb->get_position();
             if (_is_near_scale_handle(pos)) {
                 drag_mode = DRAG_SCALE;
-                drag_start_pos = pos;
+                drag_start_local_pos = pos;
+                drag_start_parent_mouse_pos = get_position() + pos;
                 drag_start_scale = image_overlay->get_scale().x;
-                drag_start_center = get_size() * 0.5f;
+                drag_start_center = image_overlay->get_position();
             } else if (_is_near_rotate_handle(pos)) {
                 drag_mode = DRAG_ROTATE;
-                drag_start_pos = pos;
+                drag_start_local_pos = pos;
+                drag_start_parent_mouse_pos = get_position() + pos;
                 drag_start_rotation = image_overlay->get_rotation();
-                Vector2 center = get_size() * 0.5f;
-                drag_start_angle = (pos - center).angle();
+                drag_start_center = image_overlay->get_position();
+                drag_start_angle = (drag_start_parent_mouse_pos - drag_start_center).angle();
             } else if (_get_content_rect().has_point(pos)) {
                 drag_mode = DRAG_MOVE;
-                drag_start_pos = pos;
+                drag_start_local_pos = pos;
+                drag_start_parent_mouse_pos = get_position() + pos;
                 drag_start_overlay_pos = image_overlay->get_position();
                 if (!selected) set_selected(true);
             } else {
@@ -318,10 +332,12 @@ void ImageOverlayEditNode::_gui_input(const Ref<InputEvent> &p_event) {
     }
 }
 
-void ImageOverlayEditNode::_handle_drag(const Vector2 &p_pos) {
+void ImageOverlayEditNode::_handle_drag(const Vector2 &p_local_pos) {
+    Vector2 current_parent_mouse_pos = get_position() + p_local_pos;
+
     switch (drag_mode) {
         case DRAG_MOVE: {
-            Vector2 delta = p_pos - drag_start_pos;
+            Vector2 delta = current_parent_mouse_pos - drag_start_parent_mouse_pos;
             Vector2 new_pos = drag_start_overlay_pos + delta;
             image_overlay->set_position(new_pos);
             _update_size_from_overlay();
@@ -330,8 +346,8 @@ void ImageOverlayEditNode::_handle_drag(const Vector2 &p_pos) {
             break;
         }
         case DRAG_SCALE: {
-            float start_dist = drag_start_pos.distance_to(drag_start_center);
-            float curr_dist = p_pos.distance_to(drag_start_center);
+            float start_dist = drag_start_parent_mouse_pos.distance_to(drag_start_center);
+            float curr_dist = current_parent_mouse_pos.distance_to(drag_start_center);
             if (start_dist > 4.0f) {
                 float ratio = curr_dist / start_dist;
                 float new_scale = drag_start_scale * ratio;
@@ -344,16 +360,31 @@ void ImageOverlayEditNode::_handle_drag(const Vector2 &p_pos) {
             break;
         }
         case DRAG_ROTATE: {
-            Vector2 center = get_size() * 0.5f;
-            float current_angle = (p_pos - center).angle();
+            float current_angle = (current_parent_mouse_pos - drag_start_center).angle();
             float delta_angle = current_angle - drag_start_angle;
             float new_rotation = drag_start_rotation + delta_angle;
             image_overlay->set_rotation(new_rotation);
+            _update_size_from_overlay();
             emit_signal("rotation_changed", new_rotation);
             queue_redraw();
             break;
         }
         default:
             break;
+    }
+}
+
+void ImageOverlayEditNode::_process(double delta) {
+    if (!image_overlay.is_valid()) return;
+
+    bool changed = false;
+    if (image_overlay->get_position() != last_overlay_pos) changed = true;
+    if (image_overlay->get_scale() != last_overlay_scale) changed = true;
+    if (image_overlay->get_rotation() != last_overlay_rotation) changed = true;
+    if (image_overlay->get_anchor_point() != last_overlay_anchor) changed = true;
+
+    if (changed) {
+        _update_size_from_overlay();
+        queue_redraw();
     }
 }
