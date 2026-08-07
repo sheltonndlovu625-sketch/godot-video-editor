@@ -1,4 +1,4 @@
-name: Build Video Encoder GDExtension 
+name: Build Video Encoder GDExtension
 
 on:
   push:
